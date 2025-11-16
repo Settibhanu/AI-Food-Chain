@@ -382,6 +382,20 @@
         .chatbot-container.active { display: flex; }
         .chatbot-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
         .chatbot-header h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+        .chatbot-header-right { display: flex; align-items: center; gap: 10px; }
+        .chatbot-audio-btn { background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.3); color: white; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: background 0.3s; width: 32px; height: 28px; }
+        .chatbot-audio-btn:hover { background: rgba(255, 255, 255, 0.3); }
+        .chatbot-audio-btn.active { background: rgba(255, 255, 255, 0.4); }
+        .chatbot-audio-btn svg { width: 16px; height: 16px; }
+        .chatbot-language-selector { position: relative; }
+        .chatbot-language-btn { background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.3); color: white; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 5px; transition: background 0.3s; }
+        .chatbot-language-btn:hover { background: rgba(255, 255, 255, 0.3); }
+        .chatbot-language-btn::after { content: '▼'; font-size: 8px; margin-left: 3px; }
+        .chatbot-language-dropdown { position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border-radius: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-width: 120px; display: none; z-index: 1001; overflow: hidden; }
+        .chatbot-language-dropdown.active { display: block; }
+        .chatbot-language-option { padding: 10px 15px; cursor: pointer; color: #2c3e50; font-size: 13px; transition: background 0.2s; }
+        .chatbot-language-option:hover { background: #f0f0f0; }
+        .chatbot-language-option.selected { background: #667eea; color: white; font-weight: 600; }
         .chatbot-close { background: none; border: none; color: white; font-size: 24px; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
         .chatbot-messages { flex: 1; overflow-y: auto; padding: 15px; background: #f8f9fa; }
         .chatbot-message { margin-bottom: 12px; display: flex; gap: 8px; }
@@ -389,9 +403,22 @@
         .chatbot-message-content { max-width: 75%; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.4; }
         .chatbot-message.bot .chatbot-message-content { background: white; color: #2c3e50; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .chatbot-message.user .chatbot-message-content { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .chatbot-message-content strong { font-weight: 600; color: #1a5f7a; }
+        .chatbot-message-content ul { margin: 8px 0; padding-left: 20px; }
+        .chatbot-message-content li { margin: 4px 0; }
+        .chatbot-message-content p { margin: 6px 0; }
+        .chatbot-message-content p:first-child { margin-top: 0; }
+        .chatbot-message-content p:last-child { margin-bottom: 0; }
         .chatbot-input-container { padding: 15px; background: white; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; }
-        .chatbot-input { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 20px; font-size: 13px; outline: none; }
+        .chatbot-input-wrapper { position: relative; flex: 1; display: flex; align-items: center; }
+        .chatbot-input { flex: 1; padding: 10px 40px 10px 12px; border: 1px solid #ddd; border-radius: 20px; font-size: 13px; outline: none; }
         .chatbot-input:focus { border-color: #667eea; }
+        .chatbot-mic-btn { position: absolute; right: 8px; background: none; border: none; color: #667eea; cursor: pointer; padding: 5px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: all 0.3s; width: 28px; height: 28px; }
+        .chatbot-mic-btn:hover { background: rgba(102, 126, 234, 0.1); }
+        .chatbot-mic-btn.recording { color: #e74c3c; animation: pulse 1.5s infinite; }
+        .chatbot-mic-btn.recording:hover { background: rgba(231, 76, 60, 0.1); }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(1.1); } }
+        .chatbot-mic-btn svg { width: 18px; height: 18px; }
         .chatbot-send { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity 0.3s; }
         .chatbot-send:hover { opacity: 0.9; }
         .chatbot-send:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -3164,11 +3191,34 @@
     <div class="chatbot-container" id="chatbotContainer">
         <div class="chatbot-header">
             <h3>🤖 AI Assistant</h3>
-            <button class="chatbot-close" id="chatbotClose">×</button>
+            <div class="chatbot-header-right">
+                <button class="chatbot-audio-btn" id="chatbotAudioBtn" title="Toggle audio responses">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                    </svg>
+                </button>
+                <div class="chatbot-language-selector">
+                    <button class="chatbot-language-btn" id="chatbotLanguageBtn">🌐 English</button>
+                    <div class="chatbot-language-dropdown" id="chatbotLanguageDropdown">
+                        <div class="chatbot-language-option selected" data-lang="en">English</div>
+                        <div class="chatbot-language-option" data-lang="hi">हिंदी (Hindi)</div>
+                        <div class="chatbot-language-option" data-lang="kn">ಕನ್ನಡ (Kannada)</div>
+                    </div>
+                </div>
+                <button class="chatbot-close" id="chatbotClose">×</button>
+            </div>
         </div>
         <div class="chatbot-messages" id="chatbotMessages"></div>
         <div class="chatbot-input-container">
-            <input type="text" class="chatbot-input" id="chatbotInput" placeholder="Ask me anything about the farms...">
+            <div class="chatbot-input-wrapper">
+                <input type="text" class="chatbot-input" id="chatbotInput" placeholder="Ask me anything about the farms...">
+                <button class="chatbot-mic-btn" id="chatbotMicBtn" title="Click to speak">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </svg>
+                </button>
+            </div>
             <button class="chatbot-send" id="chatbotSend">Send</button>
         </div>
     </div>
@@ -3198,14 +3248,13 @@
                 const contentDiv = document.createElement('div');
                 contentDiv.className = 'chatbot-message-content';
                 
-                // Split by newlines and create elements for each line
-                const lines = text.split('\n');
-                lines.forEach((line, index) => {
-                    if (index > 0) {
-                        contentDiv.appendChild(document.createElement('br'));
-                    }
-                    contentDiv.appendChild(document.createTextNode(line));
-                });
+                // For bot messages, render HTML (for markdown formatting)
+                // For user messages, use plain text to prevent XSS
+                if (isUser) {
+                    contentDiv.textContent = text;
+                } else {
+                    contentDiv.innerHTML = text;
+                }
                 
                 messageDiv.appendChild(contentDiv);
                 chatbotMessages.appendChild(messageDiv);
@@ -3227,11 +3276,433 @@
                 if (indicator) indicator.remove();
             }
 
-            async function sendMessage() {
+            // Language selection functionality
+            let selectedLanguage = localStorage.getItem('chatbotLanguage') || 'en';
+            const languageNames = {
+                'en': 'English',
+                'hi': 'हिंदी',
+                'kn': 'ಕನ್ನಡ'
+            };
+            
+            // Audio (Text-to-Speech) functionality - Automatic based on input method
+            const chatbotAudioBtn = document.getElementById('chatbotAudioBtn');
+            
+            // Map languages to speech synthesis voices
+            const speechSynthesisLanguages = {
+                'en': 'en-US',
+                'hi': 'hi-IN',
+                'kn': 'kn-IN'
+            };
+            
+            // Function to speak using API TTS - optimized for fastest response
+            async function speakTextAPI(text, lang) {
+                try {
+                    // Clean text immediately
+                    const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (!cleanText) return;
+                    
+                    // Pre-create audio element BEFORE making request
+                    const audio = new Audio();
+                    let audioUrl = null;
+                    
+                    audio.onended = () => {
+                        if (audioUrl) {
+                            URL.revokeObjectURL(audioUrl);
+                        }
+                    };
+                    
+                    audio.onerror = (e) => {
+                        console.error('Audio playback error:', e);
+                        if (audioUrl) {
+                            URL.revokeObjectURL(audioUrl);
+                        }
+                    };
+                    
+                    // Start request immediately - measure time for debugging
+                    const startTime = Date.now();
+                    
+                    // Make request with timeout to avoid hanging (increased for model loading on first request)
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout (first request may load models)
+                    
+                    try {
+                        const response = await fetch('/api/tts', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Accept': 'audio/*'  // Accept any audio format (wav, mp3, etc.)
+                            },
+                            body: JSON.stringify({ 
+                                text: cleanText, 
+                                language: lang 
+                            }),
+                            signal: controller.signal
+                        });
+                        
+                        clearTimeout(timeoutId);
+                        
+                        if (response.ok) {
+                            // Get blob stream and start playing as soon as possible
+                            const audioBlob = await response.blob();
+                            const requestTime = Date.now() - startTime;
+                            console.log(`TTS request completed in ${requestTime}ms`);
+                            
+                            audioUrl = URL.createObjectURL(audioBlob);
+                            audio.src = audioUrl;
+                            
+                            // Set up audio for immediate playback
+                            audio.preload = 'auto';
+                            
+                            // Try to play immediately
+                            try {
+                                await audio.play();
+                                const totalTime = Date.now() - startTime;
+                                console.log(`TTS playing in ${totalTime}ms total`);
+                            } catch (playError) {
+                                console.error('Audio play error:', playError);
+                                // Try loading first then playing
+                                audio.load();
+                                setTimeout(() => audio.play().catch(e => console.error(e)), 100);
+                            }
+                        } else {
+                            console.error('TTS API error:', await response.text());
+                        }
+                    } catch (fetchError) {
+                        clearTimeout(timeoutId);
+                        if (fetchError.name === 'AbortError') {
+                            console.error('TTS request timed out after 10s');
+                        } else {
+                            console.error('TTS fetch error:', fetchError);
+                        }
+                    }
+                } catch (error) {
+                    console.error('TTS API request failed:', error);
+                }
+            }
+            
+            // Function to speak using browser TTS (for English)
+            function speakTextBrowser(text, lang) {
+                if (!('speechSynthesis' in window)) return;
+                
+                // Stop any ongoing speech
+                window.speechSynthesis.cancel();
+                
+                // Remove HTML tags for clean speech
+                const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                if (!cleanText) return;
+                
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                const speechLang = speechSynthesisLanguages[lang] || 'en-US';
+                utterance.lang = speechLang;
+                utterance.rate = 0.9; // Slightly slower for clarity
+                utterance.pitch = 1;
+                utterance.volume = 1;
+                
+                // Get available voices
+                const voices = window.speechSynthesis.getVoices();
+                
+                // Try to find a voice matching the language with better matching logic
+                let preferredVoice = null;
+                
+                if (lang === 'hi') {
+                    // For Hindi, try multiple patterns
+                    preferredVoice = voices.find(voice => 
+                        voice.lang.toLowerCase().includes('hi-in') || 
+                        voice.lang.toLowerCase().includes('hindi') ||
+                        voice.lang.toLowerCase().startsWith('hi')
+                    );
+                    // Fallback: try any Indian voice
+                    if (!preferredVoice) {
+                        preferredVoice = voices.find(voice => 
+                            voice.lang.toLowerCase().includes('-in') && 
+                            (voice.name.toLowerCase().includes('hindi') || voice.name.toLowerCase().includes('india'))
+                        );
+                    }
+                } else if (lang === 'kn') {
+                    // For Kannada, try multiple patterns
+                    preferredVoice = voices.find(voice => 
+                        voice.lang.toLowerCase().includes('kn-in') || 
+                        voice.lang.toLowerCase().includes('kannada') ||
+                        voice.lang.toLowerCase().startsWith('kn')
+                    );
+                    // Fallback: try any Indian voice
+                    if (!preferredVoice) {
+                        preferredVoice = voices.find(voice => 
+                            voice.lang.toLowerCase().includes('-in') && 
+                            (voice.name.toLowerCase().includes('kannada') || voice.name.toLowerCase().includes('india'))
+                        );
+                    }
+                } else {
+                    // For English
+                    preferredVoice = voices.find(voice => 
+                        voice.lang.toLowerCase().startsWith('en') && voice.localService
+                    );
+                }
+                
+                // If still no voice found, try any voice with matching language code
+                if (!preferredVoice && lang !== 'en') {
+                    preferredVoice = voices.find(voice => 
+                        voice.lang.toLowerCase().includes(lang)
+                    );
+                }
+                
+                // If we found a voice, use it
+                if (preferredVoice) {
+                    utterance.voice = preferredVoice;
+                    console.log(`Using voice: ${preferredVoice.name} (${preferredVoice.lang}) for ${lang}`);
+                } else {
+                    // Log available voices for debugging
+                    console.log('Available voices:', voices.map(v => `${v.name} (${v.lang})`));
+                    console.log(`No specific voice found for language: ${lang} (${speechLang})`);
+                    console.log('Attempting to speak with language code only - browser will try to find a matching voice');
+                    // Still try to speak with the language code set - browser may have a fallback
+                }
+                
+                // Add error handler
+                utterance.onerror = function(event) {
+                    console.error('Speech synthesis error:', event.error);
+                    if (lang === 'hi' || lang === 'kn') {
+                        console.warn(`Note: Hindi/Kannada voices may not be available in your browser. Please check your system's installed voices.`);
+                    }
+                };
+                
+                utterance.onend = function() {
+                    console.log('Speech finished');
+                };
+                
+                window.speechSynthesis.speak(utterance);
+            }
+            
+            // Main speak function - browser TTS for English/Hindi, AI4Bharat API for Kannada
+            function speakText(text, lang) {
+                if (lang === 'kn') {
+                    // Use AI4Bharat Indic-TTS API for Kannada only
+                    speakTextAPI(text, lang);
+                } else {
+                    // Use browser TTS for English and Hindi
+                    speakTextBrowser(text, lang);
+                }
+            }
+            
+            // Load voices when available - ensure voices are loaded before speaking
+            let voicesLoaded = false;
+            function ensureVoicesLoaded() {
+                if (voicesLoaded) return;
+                const voices = window.speechSynthesis.getVoices();
+                if (voices.length > 0) {
+                    voicesLoaded = true;
+                    console.log('Voices loaded:', voices.length);
+                }
+            }
+            
+            if ('speechSynthesis' in window) {
+                // Some browsers load voices asynchronously
+                ensureVoicesLoaded();
+                speechSynthesis.onvoiceschanged = () => {
+                    ensureVoicesLoaded();
+                };
+            }
+            
+            // Speaker button - read the last bot message aloud
+            if (chatbotAudioBtn) {
+                chatbotAudioBtn.title = 'Read last response aloud';
+                chatbotAudioBtn.addEventListener('click', () => {
+                    // Find the last bot message
+                    const botMessages = chatbotMessages.querySelectorAll('.chatbot-message.bot .chatbot-message-content');
+                    if (botMessages.length > 0) {
+                        const lastMessage = botMessages[botMessages.length - 1];
+                        const messageText = lastMessage.innerHTML || lastMessage.textContent;
+                        
+                        if (messageText && messageText.trim()) {
+                            // Ensure voices are loaded
+                            ensureVoicesLoaded();
+                            // Read the message in the selected language
+                            setTimeout(() => {
+                                speakText(messageText, selectedLanguage);
+                            }, 100);
+                        } else {
+                            console.log('No message to read');
+                        }
+                    } else {
+                        console.log('No bot messages found');
+                    }
+                });
+            }
+            
+            const chatbotLanguageBtn = document.getElementById('chatbotLanguageBtn');
+            const chatbotLanguageDropdown = document.getElementById('chatbotLanguageDropdown');
+            const languageOptions = chatbotLanguageDropdown.querySelectorAll('.chatbot-language-option');
+            
+            // Update placeholder based on language
+            function updatePlaceholder(lang) {
+                const placeholders = {
+                    'en': 'Ask me anything about the farms...',
+                    'hi': 'मुझसे फार्मों के बारे में कुछ भी पूछें...',
+                    'kn': 'ನನಗೆ ಫಾರ್ಮ್ಗಳ ಬಗ್ಗೆ ಏನಾದರೂ ಕೇಳಿ...'
+                };
+                if (chatbotInput) {
+                    chatbotInput.placeholder = placeholders[lang] || placeholders['en'];
+                }
+            }
+            
+            function updateLanguageButton(lang) {
+                const langName = languageNames[lang] || 'English';
+                if (chatbotLanguageBtn) {
+                    chatbotLanguageBtn.textContent = `🌐 ${langName}`;
+                }
+                selectedLanguage = lang;
+                localStorage.setItem('chatbotLanguage', lang);
+                
+                // Update selected state
+                languageOptions.forEach(opt => {
+                    if (opt.dataset.lang === lang) {
+                        opt.classList.add('selected');
+                    } else {
+                        opt.classList.remove('selected');
+                    }
+                });
+                
+                // Update placeholder
+                updatePlaceholder(lang);
+            }
+            
+            // Initialize language button
+            updateLanguageButton(selectedLanguage);
+            
+            // Voice recognition functionality
+            const chatbotMicBtn = document.getElementById('chatbotMicBtn');
+            let recognition = null;
+            let isRecording = false;
+            
+            // Map our language codes to Speech Recognition API language codes
+            const speechRecognitionLanguages = {
+                'en': 'en-US',
+                'hi': 'hi-IN',
+                'kn': 'kn-IN'
+            };
+            
+            // Initialize Speech Recognition if available
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                
+                // Set initial language
+                const initialSpeechLang = speechRecognitionLanguages[selectedLanguage] || 'en-US';
+                recognition.lang = initialSpeechLang;
+                
+                recognition.onstart = function() {
+                    isRecording = true;
+                    chatbotMicBtn.classList.add('recording');
+                    chatbotMicBtn.title = 'Recording... Click to stop';
+                };
+                
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    if (chatbotInput) {
+                        chatbotInput.value = transcript;
+                        // Focus the input so user can review/edit before sending
+                        chatbotInput.focus();
+                        // Auto-send after voice input (user can still edit if needed)
+                        setTimeout(() => {
+                            if (chatbotInput.value.trim()) {
+                                sendMessage('voice'); // Mark as voice input
+                            }
+                        }, 300);
+                    }
+                };
+                
+                recognition.onerror = function(event) {
+                    console.error('Speech recognition error:', event.error);
+                    isRecording = false;
+                    chatbotMicBtn.classList.remove('recording');
+                    chatbotMicBtn.title = 'Click to speak';
+                    
+                    let errorMsg = 'Speech recognition error. Please try again.';
+                    if (event.error === 'no-speech') {
+                        errorMsg = 'No speech detected. Please try again.';
+                    } else if (event.error === 'not-allowed') {
+                        errorMsg = 'Microphone permission denied. Please allow microphone access.';
+                    }
+                    addMessage(errorMsg);
+                };
+                
+                recognition.onend = function() {
+                    isRecording = false;
+                    chatbotMicBtn.classList.remove('recording');
+                    chatbotMicBtn.title = 'Click to speak';
+                };
+                
+                // Handle mic button click
+                if (chatbotMicBtn) {
+                    chatbotMicBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        
+                        if (!recognition) {
+                            addMessage('Speech recognition is not supported in your browser. Please type your message.');
+                            return;
+                        }
+                        
+                        if (isRecording) {
+                            recognition.stop();
+                        } else {
+                            // Set language based on selected language
+                            const speechLang = speechRecognitionLanguages[selectedLanguage] || 'en-US';
+                            recognition.lang = speechLang;
+                            recognition.start();
+                        }
+                    });
+                }
+            } else {
+                // Speech recognition not supported
+                if (chatbotMicBtn) {
+                    chatbotMicBtn.style.display = 'none';
+                }
+            }
+            
+            // Toggle dropdown
+            if (chatbotLanguageBtn && chatbotLanguageDropdown) {
+                chatbotLanguageBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    chatbotLanguageDropdown.classList.toggle('active');
+                });
+                
+                // Select language
+                languageOptions.forEach(option => {
+                    option.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const lang = option.dataset.lang;
+                        updateLanguageButton(lang);
+                        chatbotLanguageDropdown.classList.remove('active');
+                        
+                        // Update speech recognition language if available
+                        if (recognition && !isRecording) {
+                            const speechLang = speechRecognitionLanguages[lang] || 'en-US';
+                            recognition.lang = speechLang;
+                        }
+                    });
+                });
+                
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!chatbotLanguageBtn.contains(e.target) && !chatbotLanguageDropdown.contains(e.target)) {
+                        chatbotLanguageDropdown.classList.remove('active');
+                    }
+                });
+            }
+
+            // Track input method (text or voice)
+            let lastInputMethod = 'text'; // 'text' or 'voice'
+            
+            async function sendMessage(inputMethod = 'text') {
                 if (!chatbotInput || !chatbotSend) return;
                 const message = chatbotInput.value.trim();
                 if (!message) return;
 
+                // Track how the message was input
+                lastInputMethod = inputMethod;
+                
                 addMessage(message, true);
                 chatbotInput.value = '';
                 chatbotSend.disabled = true;
@@ -3241,10 +3712,20 @@
                     const response = await fetch('/api/chatbot', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message })
+                        body: JSON.stringify({ 
+                            message: message,
+                            language: selectedLanguage
+                        })
                     });
 
                     const data = await response.json();
+                    
+                    // Start TTS request IMMEDIATELY before UI updates (parallel processing)
+                    if (inputMethod === 'voice' && data.response) {
+                        // Start TTS request immediately - don't wait for UI
+                        speakText(data.response, selectedLanguage);
+                    }
+                    
                     removeTypingIndicator();
                     addMessage(data.response);
                 } catch (error) {
@@ -3267,7 +3748,14 @@
                 if (chatbotOpen) {
                     if (chatbotInput) chatbotInput.focus();
                     if (chatbotMessages && chatbotMessages.children.length === 0) {
-                        addMessage("Hello! I'm your AI assistant for the Food Supply Chain Platform. I can answer questions about any farm, metrics, performance, and insights. What would you like to know?");
+                        const initialMessages = {
+                            'en': "Hello! I'm your AI assistant for the Food Supply Chain Platform. I can answer questions about any farm, metrics, performance, and insights. What would you like to know?",
+                            'hi': "नमस्ते! मैं खाद्य आपूर्ति श्रृंखला प्लेटफॉर्म के लिए आपका AI सहायक हूँ। मैं किसी भी फार्म, मेट्रिक्स, प्रदर्शन और अंतर्दृष्टि के बारे में प्रश्नों का उत्तर दे सकता हूँ। आप क्या जानना चाहेंगे?",
+                            'kn': "ನಮಸ್ಕಾರ! ನಾನು ಆಹಾರ ಸರಬರಾಜು ಸರಪಳಿ ವೇದಿಕೆಗಾಗಿ ನಿಮ್ಮ AI ಸಹಾಯಕ. ನಾನು ಯಾವುದೇ ಫಾರ್ಮ್, ಮೆಟ್ರಿಕ್ಸ್, ಕಾರ್ಯಕ್ಷಮತೆ ಮತ್ತು ಒಳನೋಟಗಳ ಬಗ್ಗೆ ಪ್ರಶ್ನೆಗಳಿಗೆ ಉತ್ತರಿಸಬಹುದು. ನೀವು ಏನು ತಿಳಿಯಲು ಬಯಸುತ್ತೀರಿ?"
+                        };
+                        const greeting = initialMessages[selectedLanguage] || initialMessages['en'];
+                        addMessage(greeting);
+                        // Don't speak the initial greeting automatically
                     }
                 }
             });
@@ -3280,14 +3768,16 @@
             }
 
             if (chatbotSend) {
-                chatbotSend.addEventListener('click', sendMessage);
+                chatbotSend.addEventListener('click', () => {
+                    sendMessage('text'); // Mark as text input
+                });
             }
 
             if (chatbotInput) {
                 chatbotInput.addEventListener('keypress', (e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        sendMessage();
+                        sendMessage('text'); // Mark as text input
                     }
                 });
             }

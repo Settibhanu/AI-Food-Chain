@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 import pandas as pd
 import json
 import os
@@ -7,6 +7,19 @@ import numpy as np
 from datetime import timedelta
 import requests
 import re
+import google.generativeai as genai
+from dotenv import load_dotenv
+import io
+import threading
+import time
+import tempfile
+import torch
+from transformers import AutoTokenizer
+import soundfile as sf
+import numpy as np
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -1206,86 +1219,433 @@ def view_details(farm_name, stage):
 
     return html_content
 
+def convert_markdown_to_html(text):
+    """Convert markdown formatting to HTML for better display"""
+    import re
+    
+    # First, convert **bold** to <strong>bold</strong> (handle nested cases)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+    
+    # Convert * list items to <li> items
+    lines = text.split('\n')
+    html_lines = []
+    in_list = False
+    
+    for line in lines:
+        line_stripped = line.strip()
+        
+        # Check if line starts with * (list item) - but not ** (bold)
+        list_match = re.match(r'^\s*\*\s+(.+)$', line)
+        if list_match and not line_stripped.startswith('**'):
+            if not in_list:
+                html_lines.append('<ul>')
+                in_list = True
+            # Process the list item content (may contain <strong> tags)
+            item_content = list_match.group(1)
+            html_lines.append(f'<li>{item_content}</li>')
+        else:
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            if line_stripped:
+                # Regular paragraph - may contain <strong> tags
+                html_lines.append(f'<p>{line}</p>')
+            else:
+                html_lines.append('<br>')
+    
+    if in_list:
+        html_lines.append('</ul>')
+    
+    result = '\n'.join(html_lines)
+    return result
+
+def is_off_topic(question):
+    """Detect if a question is off-topic (not related to farming or project data)"""
+    question_lower = question.lower().strip()
+    
+    # Farming and project-related keywords
+    farming_keywords = [
+        'farm', 'crop', 'yield', 'harvest', 'soil', 'fertilizer', 'irrigation',
+        'livestock', 'cattle', 'chicken', 'pig', 'sheep', 'goat', 'dairy',
+        'spoilage', 'waste', 'storage', 'transport', 'delivery', 'processing',
+        'retail', 'consumption', 'satisfaction', 'defect', 'pest', 'machinery',
+        'uptime', 'delay', 'temperature', 'humidity', 'shelf', 'life',
+        'performance', 'score', 'metric', 'data', 'farma', 'farmb', 'farmc',
+        'farmd', 'tomato', 'potato', 'wheat', 'corn', 'rice', 'vegetable',
+        'fruit', 'grain', 'production', 'supply', 'chain', 'comparison',
+        'compare', 'best', 'worst', 'ranking', 'rank', 'top', 'bottom',
+        'biogas', 'upcycling', 'segregation', 'waste management', 'packaging'
+    ]
+    
+    # Off-topic keywords (common non-farming topics)
+    off_topic_keywords = [
+        'weather forecast', 'recipe', 'cooking', 'restaurant', 'movie',
+        'music', 'sports', 'politics', 'news', 'stock market', 'cryptocurrency',
+        'bitcoin', 'programming', 'code', 'python', 'javascript', 'html',
+        'css', 'website', 'app development', 'game', 'video game', 'tv show',
+        'celebrity', 'fashion', 'travel', 'vacation', 'hotel', 'flight',
+        'mathematics', 'physics', 'chemistry', 'biology', 'history', 'geography',
+        'philosophy', 'religion', 'medical', 'health advice', 'diagnosis',
+        'legal advice', 'lawyer', 'court', 'investment', 'trading', 'finance',
+        'shopping', 'product review', 'amazon', 'netflix', 'youtube'
+    ]
+    
+    # Check if question contains farming keywords
+    has_farming_keyword = any(keyword in question_lower for keyword in farming_keywords)
+    
+    # Check if question is clearly off-topic
+    is_clearly_off_topic = any(keyword in question_lower for keyword in off_topic_keywords)
+    
+    # If it has farming keywords, it's on-topic
+    if has_farming_keyword:
+        return False
+    
+    # If it's clearly off-topic, refuse it
+    if is_clearly_off_topic:
+        return True
+    
+    # For ambiguous questions (greetings, general questions), allow them
+    # but they'll be handled by the prompt to redirect to farming topics
+    greeting_patterns = [
+        r'^(hi|hello|hey|greetings|howdy|good\s+(morning|afternoon|evening))[\s!?.,]*$',
+        r'^(what|who|where|when|why|how)\s+(are|is|can|do|does|will|would)',
+        r'^(tell\s+me|explain|describe|what\s+is|what\s+are)',
+    ]
+    
+    for pattern in greeting_patterns:
+        if re.match(pattern, question_lower):
+            return False  # Allow greetings and general questions
+    
+    # If question is very short and doesn't match anything, consider it potentially off-topic
+    if len(question.split()) < 3 and not has_farming_keyword:
+        return False  # Let the model handle it, but prompt will guide to farming topics
+    
+    # Default: if no farming keywords and not clearly off-topic, let the model decide
+    # but we'll add strict instructions in the prompt
+    return False
+
+def create_farmer_prompt(context, question, language='en'):
+    """Create a prompt with expert farmer persona and strict farming-only restrictions"""
+    
+    # Language instructions
+    language_instructions = {
+        'en': 'Respond in English. Use natural, conversational English.',
+        'hi': 'Respond in Hindi (हिंदी). Use natural, conversational Hindi. Write all text in Devanagari script.',
+        'kn': 'Respond in Kannada (ಕನ್ನಡ). Use natural, conversational Kannada. Write all text in Kannada script.'
+    }
+    
+    lang_instruction = language_instructions.get(language, language_instructions['en'])
+    
+    prompt = f"""You are a friendly, experienced, and knowledgeable farmer with decades of hands-on experience in agriculture. You speak in a warm, conversational, and down-to-earth manner - like a neighbor who's always happy to share farming wisdom. You use casual language, occasional farming expressions, and you're genuinely passionate about agriculture.
+
+LANGUAGE INSTRUCTION - CRITICAL:
+{lang_instruction}
+You MUST respond entirely in the requested language. Maintain the same accuracy, professionalism, and expertise regardless of the language.
+
+CRITICAL RESTRICTIONS - YOU MUST FOLLOW THESE STRICTLY:
+1. You ONLY answer questions about:
+   - Farming, agriculture, crops, livestock, and farm operations
+   - The food supply chain data from this project (FarmA, FarmB, FarmC, FarmD)
+   - Farm metrics: yields, spoilage, waste, defects, satisfaction, pest risk, machinery uptime, etc.
+   - Crop types, storage, processing, transportation, retail, consumption, and waste management
+   - Farm comparisons, performance scores, and data analysis
+
+2. You MUST politely refuse ALL questions that are NOT related to farming or this project's data, such as:
+   - General knowledge questions (history, science, geography, etc.)
+   - Technology, programming, or software questions
+   - Entertainment, movies, music, sports
+   - Cooking recipes or restaurant recommendations
+   - Weather forecasts (unless specifically about farm weather impact)
+   - Medical, legal, or financial advice
+   - Any topic unrelated to agriculture or this food supply chain project
+
+3. When refusing off-topic questions, be friendly and redirect: "Well, I appreciate your question, but I'm a farmer through and through - I only talk about farming, crops, livestock, and the data from our farms here. I'd be happy to help you with anything related to our food supply chain, yields, spoilage, waste management, or farm performance though!"
+
+4. When answering farming questions point-wise, use the data provided below. Be accurate with numbers and specific with your answers.
+
+5. Keep your responses conversational and friendly, like you're chatting over a fence with a neighbor. But be professional and concise.
+
+FARM DATA FROM THIS PROJECT:
+{context}
+
+USER'S QUESTION: {question}
+
+Remember: You are a farmer. You only talk about farming and this project's farm data. Be friendly, conversational, and helpful - but stay strictly within your farming expertise!"""
+    
+    return prompt
+
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
-    """AI Chatbot endpoint that answers questions about farms and metrics using Ollama"""
+    """AI Chatbot endpoint that answers questions about farms and metrics using Gemini API"""
     try:
         data = request.json
         question = data.get('message', '').strip()
+        language = data.get('language', 'en').lower()  # Default to English
+        
+        # Validate language
+        valid_languages = ['en', 'hi', 'kn']
+        if language not in valid_languages:
+            language = 'en'
+        
+        # Get language-specific greetings
+        greetings = {
+            'en': 'Howdy! I\'m here to help you with questions about farming and our farm data. What would you like to know?',
+            'hi': 'नमस्ते! मैं खेती और हमारे फार्म डेटा के बारे में प्रश्नों में आपकी मदद करने के लिए यहाँ हूँ। आप क्या जानना चाहेंगे?',
+            'kn': 'ನಮಸ್ಕಾರ! ನಾನು ಕೃಷಿ ಮತ್ತು ನಮ್ಮ ಫಾರ್ಮ್ ಡೇಟಾದ ಬಗ್ಗೆ ಪ್ರಶ್ನೆಗಳಿಗೆ ಸಹಾಯ ಮಾಡಲು ಇಲ್ಲಿದ್ದೇನೆ. ನೀವು ಏನು ತಿಳಿಯಲು ಬಯಸುತ್ತೀರಿ?'
+        }
+        
+        refusal_messages = {
+            'en': 'Well, I appreciate your question, but I\'m a farmer through and through - I only talk about farming, crops, livestock, and the data from our farms here. I\'d be happy to help you with anything related to our food supply chain, yields, spoilage, waste management, or farm performance though!',
+            'hi': 'अच्छा, मैं आपके प्रश्न की सराहना करता हूँ, लेकिन मैं पूरी तरह से एक किसान हूँ - मैं केवल खेती, फसलों, पशुधन, और हमारे फार्मों के डेटा के बारे में बात करता हूँ। हालाँकि, मैं हमारे खाद्य आपूर्ति श्रृंखला, उपज, खराबी, अपशिष्ट प्रबंधन, या फार्म प्रदर्शन से संबंधित किसी भी चीज़ में आपकी मदद करने में खुशी होगी!',
+            'kn': 'ಸರಿ, ನಾನು ನಿಮ್ಮ ಪ್ರಶ್ನೆಯನ್ನು ಮೆಚ್ಚುತ್ತೇನೆ, ಆದರೆ ನಾನು ಸಂಪೂರ್ಣವಾಗಿ ರೈತನಾಗಿದ್ದೇನೆ - ನಾನು ಕೇವಲ ಕೃಷಿ, ಬೆಳೆಗಳು, ಪಶುಸಂಪತ್ತು ಮತ್ತು ನಮ್ಮ ಫಾರ್ಮ್ಗಳ ಡೇಟಾದ ಬಗ್ಗೆ ಮಾತನಾಡುತ್ತೇನೆ. ಆದಾಗ್ಯೂ, ನಮ್ಮ ಆಹಾರ ಸರಬರಾಜು ಸರಪಳಿ, ಇಳುವರಿ, ಕೆಡುವಿಕೆ, ತ್ಯಾಜ್ಯ ನಿರ್ವಹಣೆ, ಅಥವಾ ಫಾರ್ಮ್ ಕಾರ್ಯಕ್ಷಮತೆಗೆ ಸಂಬಂಧಿಸಿದ ಯಾವುದೇ ವಿಷಯದಲ್ಲಿ ನಿಮಗೆ ಸಹಾಯ ಮಾಡಲು ನನಗೆ ಸಂತೋಷವಾಗುತ್ತದೆ!'
+        }
         
         if not question:
-            return jsonify({'response': 'Please ask me a question about the farms!'})
+            return jsonify({'response': greetings.get(language, greetings['en'])})
+        
+        # Check if question is off-topic
+        if is_off_topic(question):
+            return jsonify({
+                'response': refusal_messages.get(language, refusal_messages['en'])
+            })
         
         # Load all farm data for context
         all_farms = load_all_farms_data()
         
-        # Prepare simple context with farm data
+        # Prepare context with farm data
         context = prepare_farm_context(all_farms)
         
-        # Create simple prompt for Ollama
-        prompt = f"""Food Supply Chain Data:
-{context}
-
-Question: {question}
-
-Answer the question based on the data provided above. Be accurate and helpful."""
-        
-        # Call Ollama API
-        ollama_model = os.environ.get('OLLAMA_MODEL', 'llama2')
+        # Initialize Gemini API
+        api_key = os.environ.get('GEMINI_API_KEY')
+        if not api_key:
+            error_messages = {
+                'en': 'I\'m sorry, but the Gemini API key isn\'t configured. Please set the GEMINI_API_KEY environment variable.',
+                'hi': 'मुझे खेद है, लेकिन Gemini API कुंजी कॉन्फ़िगर नहीं की गई है। कृपया GEMINI_API_KEY environment variable सेट करें।',
+                'kn': 'ಕ್ಷಮಿಸಿ, ಆದರೆ Gemini API ಕೀ ಕಾನ್ಫಿಗರ್ ಮಾಡಲಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು GEMINI_API_KEY environment variable ಅನ್ನು ಹೊಂದಿಸಿ.'
+            }
+            return jsonify({
+                'response': error_messages.get(language, error_messages['en'])
+            })
         
         try:
-            ollama_response = requests.post(
-                'http://localhost:11434/api/generate',
-                json={
-                    'model': ollama_model,
-                    'prompt': prompt,
-                    'stream': False,
-                    'options': {
-                        'temperature': 0.7,
-                        'num_predict': 200
-                    }
-                },
-                timeout=30
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            
+            # Create system prompt with farmer persona and language
+            system_prompt = create_farmer_prompt(context, question, language)
+            
+            # Generate response
+            response = model.generate_content(
+                system_prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.7,
+                    max_output_tokens=500,
+                )
             )
             
-            if ollama_response.status_code == 200:
-                result = ollama_response.json()
-                response_text = result.get('response', '').strip()
-                if response_text:
-                    return jsonify({'response': response_text})
-                else:
-                    return jsonify({
-                        'response': 'I received an empty response from Ollama. Please ensure Ollama is running and the model is properly installed.'
-                    })
+            response_text = response.text.strip() if response.text else ''
+            
+            if response_text:
+                # Convert markdown formatting to HTML
+                response_text = convert_markdown_to_html(response_text)
+                return jsonify({'response': response_text})
             else:
-                error_msg = ollama_response.text if hasattr(ollama_response, 'text') else 'Unknown error'
-                try:
-                    error_json = ollama_response.json()
-                    if 'error' in error_json and 'not found' in error_json['error'].lower():
-                        return jsonify({
-                            'response': f'Model "{ollama_model}" not found. Please install it by running: ollama pull {ollama_model}'
-                        })
-                except:
-                    pass
-                
                 return jsonify({
-                    'response': f'Ollama API error: {error_msg}'
+                    'response': 'Hmm, I didn\'t get a proper response. Could you try rephrasing your question about the farms?'
                 })
-        except requests.exceptions.ConnectionError:
+                
+        except Exception as e:
+            error_msg = str(e)
+            if 'API_KEY' in error_msg or 'api key' in error_msg.lower():
+                return jsonify({
+                    'response': 'There\'s an issue with the API key. Please check your GEMINI_API_KEY environment variable.'
+                })
             return jsonify({
-                'response': 'Unable to connect to Ollama. Please ensure Ollama is running on your local machine.'
-            })
-        except requests.exceptions.Timeout:
-            return jsonify({
-                'response': 'Ollama request timed out. Please try again.'
-            })
-        except requests.exceptions.RequestException as e:
-            return jsonify({
-                'response': f'Ollama connection error: {str(e)}'
+                'response': f'Sorry, I ran into a technical issue: {error_msg}. Could you try asking again?'
             })
             
     except Exception as e:
-        return jsonify({'response': f'Sorry, I encountered an error: {str(e)}'})
+        return jsonify({'response': f'Well, I hit a snag there: {str(e)}. Mind trying again?'})
+
+# COMMENTED OUT: AI4Bharat Indic-TTS models for Kannada (requires TTS library installation)
+# Will use gTTS for Kannada instead until TTS library is properly set up
+# 
+# Initialize AI4Bharat Indic-TTS models for Kannada only
+# _tts_model = None
+# _tts_lock = threading.Lock()
+# 
+# def get_ai4bharat_tts():
+#     """Get or create AI4Bharat Indic-TTS model for Kannada (thread-safe)"""
+#     global _tts_model
+#     
+#     if _tts_model is None:
+#         with _tts_lock:
+#             if _tts_model is None:
+#                 try:
+#                     print("Loading AI4Bharat Indic-TTS for Kannada...")
+#                     
+#                     # Check if Indic-TTS is set up
+#                     try:
+#                         # Try to import and use AI4Bharat Indic-TTS
+#                         import sys
+#                         import os
+#                         
+#                         # Check if Indic-TTS directory exists
+#                         indic_tts_path = os.path.join(os.getcwd(), 'Indic-TTS')
+#                         if not os.path.exists(indic_tts_path):
+#                             print("Indic-TTS not found. Please clone: git clone https://github.com/AI4Bharat/Indic-TTS.git")
+#                             print("Then follow setup instructions in the repo.")
+#                             return None
+#                         
+#                         # Add Indic-TTS to path
+#                         if indic_tts_path not in sys.path:
+#                             sys.path.insert(0, indic_tts_path)
+#                         
+#                         # Import TTS module from Indic-TTS
+#                         from TTS.bin.synthesize import Synthesizer
+#                         from TTS.utils.io import load_checkpoint
+#                         from TTS.utils.audio import AudioProcessor
+#                         import json
+#                         
+#                         # Load Kannada model (assuming models are in Indic-TTS directory)
+#                         # Note: The folder is "fastptich" (typo in Indic-TTS repo), not "fastpitch"
+#                         kannada_model_path = os.path.join(indic_tts_path, 'Kannada', 'fastptich', 'best_model.pth')
+#                         kannada_config_path = os.path.join(indic_tts_path, 'Kannada', 'config.json')
+#                         kannada_vocoder_path = os.path.join(indic_tts_path, 'Kannada', 'hifigan', 'best_model.pth')
+#                         kannada_vocoder_config_path = os.path.join(indic_tts_path, 'Kannada', 'hifigan', 'config.json')
+#                         
+#                         if not os.path.exists(kannada_model_path):
+#                             print(f"Kannada model not found at {kannada_model_path}")
+#                             print("Please download Kannada models from AI4Bharat Indic-TTS repository")
+#                             return None
+#                         
+#                         # Load synthesizer
+#                         _tts_model = Synthesizer(
+#                             model_path=kannada_model_path,
+#                             config_path=kannada_config_path,
+#                             vocoder_path=kannada_vocoder_path,
+#                             vocoder_config_path=kannada_vocoder_config_path
+#                         )
+#                         
+#                         print("AI4Bharat Indic-TTS for Kannada loaded successfully!")
+#                         
+#                     except ImportError as e:
+#                         print(f"Failed to import Indic-TTS: {e}")
+#                         print("Please ensure Indic-TTS is set up correctly.")
+#                         print("Clone: git clone https://github.com/AI4Bharat/Indic-TTS.git")
+#                         return None
+#                     except Exception as e:
+#                         print(f"Failed to load AI4Bharat Indic-TTS: {e}")
+#                         import traceback
+#                         traceback.print_exc()
+#                         return None
+#                         
+#                 except Exception as e:
+#                     print(f"Error initializing AI4Bharat Indic-TTS: {e}")
+#                     return None
+#     return _tts_model
+
+@app.route('/api/tts', methods=['POST'])
+def text_to_speech():
+    """Generate audio from text using gTTS for Kannada (AI4Bharat Indic-TTS commented out)"""
+    try:
+        data = request.json
+        text = data.get('text', '').strip()
+        language = data.get('language', 'en').lower()
+        
+        # COMMENTED OUT: AI4Bharat Indic-TTS for Kannada
+        # Only handle Kannada via API - English and Hindi use browser TTS
+        # if language != 'kn':
+        #     return jsonify({'error': 'This endpoint is only for Kannada. Use browser TTS for English and Hindi.'}), 400
+        
+        # Now using gTTS for Kannada (and any language that calls this endpoint)
+        if not text:
+            return jsonify({'error': 'No text provided'}), 400
+        
+        # Remove HTML tags for clean speech
+        clean_text = re.sub(r'<[^>]*>', ' ', text)
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        
+        if not clean_text:
+            return jsonify({'error': 'No text content after cleaning'}), 400
+        
+        # Limit text length for faster processing
+        max_length = 5000  # gTTS limit
+        if len(clean_text) > max_length:
+            clean_text = clean_text[:max_length] + "..."
+        
+        try:
+            start_time = time.time()
+            
+            # COMMENTED OUT: AI4Bharat Indic-TTS approach
+            # synthesizer = get_ai4bharat_tts()
+            # if synthesizer is None:
+            #     return jsonify({
+            #         'error': 'AI4Bharat Indic-TTS not available. Please set up Indic-TTS: git clone https://github.com/AI4Bharat/Indic-TTS.git'
+            #     }), 500
+            # 
+            # # Generate audio using AI4Bharat Indic-TTS
+            # temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+            # temp_file.close()
+            # 
+            # try:
+            #     # Synthesize Kannada text
+            #     wav = synthesizer.tts(clean_text)
+            #     synthesizer.save_wav(wav, temp_file.name)
+            #     
+            #     # Read the generated audio file
+            #     with open(temp_file.name, 'rb') as f:
+            #         audio_data = f.read()
+            #     
+            #     # Clean up temp file
+            #     os.unlink(temp_file.name)
+            #     
+            #     generation_time = time.time() - start_time
+            #     print(f"AI4Bharat TTS generation took {generation_time:.2f}s for Kannada ({len(clean_text)} chars)")
+            
+            # Using gTTS for Kannada (and other languages if needed)
+            from gtts import gTTS
+            
+            # Language code mapping
+            lang_map = {
+                'en': 'en',
+                'hi': 'hi',
+                'kn': 'kn'
+            }
+            tts_lang = lang_map.get(language, 'en')
+            
+            # Generate audio using gTTS
+            tts = gTTS(text=clean_text, lang=tts_lang, slow=False, tld='com')
+            
+            # Save directly to memory buffer (faster than file I/O)
+            audio_buffer = io.BytesIO()
+            tts.write_to_fp(audio_buffer)
+            audio_buffer.seek(0)
+            
+            generation_time = time.time() - start_time
+            print(f"TTS generation (gTTS) took {generation_time:.2f}s for {language} ({len(clean_text)} chars)")
+            
+            # Return audio file
+            response = send_file(
+                audio_buffer,
+                mimetype='audio/mpeg',
+                as_attachment=False,
+                download_name='speech.mp3'
+            )
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            response.headers['Content-Type'] = 'audio/mpeg'
+            return response
+            
+        except Exception as e:
+            print(f"TTS error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'TTS generation failed: {str(e)}'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'TTS error: {str(e)}'}), 500
 
 def prepare_farm_context(all_farms):
     """Prepare simple farm data context"""
@@ -1309,123 +1669,6 @@ def prepare_farm_context(all_farms):
         context.append(f"  Crops: {', '.join([f'{crop} (yield:{crop_yields[crop]:.1f}t/ha, spoilage:{crop_spoilage.get(crop,0):.1f}%, waste:{crop_waste.get(crop,0):.1f}%)' for crop in crop_yields.keys()])}")
     
     return "\n".join(context)
-
-def calculate_performance_score_from_data(data):
-    """Create a comprehensive prompt for Ollama that ensures accurate, professional responses"""
-    question_lower = question.lower().strip()
-    original_question = question.strip()
-    
-    # STRICT greeting detection - check if question is ONLY a greeting
-    greeting_only_patterns = [
-        r'^(hi|hello|hey|greetings)[\s!?.,]*$',
-        r'^(good\s+(morning|afternoon|evening))[\s!?.,]*$',
-        r'^hi[\s!?.,]*$',
-        r'^hello[\s!?.,]*$'
-    ]
-    
-    is_greeting_only = False
-    for pattern in greeting_only_patterns:
-        if re.match(pattern, question_lower):
-            is_greeting_only = True
-            break
-    
-    # Also check if question is just punctuation or very short with no meaningful words
-    if not is_greeting_only:
-        # Remove greetings and check if anything meaningful remains
-        cleaned = re.sub(r'^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening))[\s,]*', '', question_lower, flags=re.IGNORECASE)
-        cleaned = re.sub(r'[\s,]+(hi|hello|hey|greetings)[\s!?.,]*$', '', cleaned, flags=re.IGNORECASE)
-        cleaned = cleaned.strip(' \t\n\r!?.,')
-        # If nothing meaningful remains after removing greetings, treat as greeting only
-        if len(cleaned) == 0 or cleaned in ['', '?', '!', '.', ',']:
-            is_greeting_only = True
-    
-    # For greetings ONLY - return simple prompt without context to avoid timeouts and irrelevant data
-    if is_greeting_only:
-        return """You are an AI assistant for an AI Food Supply Chain Platform. Answer only what is asked  in the question after thinking and understanding properly based on the question asked and the data provided. Be accurate and helpful."""
-    
-    # Remove greetings from question while preserving actual question content
-    cleaned_question = original_question
-    greeting_removal_patterns = [
-        r'^(hi|hello|hey|greetings)[\s,]+',
-        r'^(good\s+(morning|afternoon|evening))[\s,]+',
-        r'[\s,]+(hi|hello|hey|greetings)[\s,]*$'
-    ]
-    for pattern in greeting_removal_patterns:
-        cleaned_question = re.sub(pattern, '', cleaned_question, flags=re.IGNORECASE).strip()
-    
-    # Use cleaned question for analysis
-    question_lower = cleaned_question.lower() if cleaned_question else original_question.lower()
-    
-    # Detect question type
-    is_specific_farm = any(farm in question_lower for farm in ['farma', 'farm a', 'farmb', 'farm b', 'farc', 'farm c', 'farmd', 'farm d'])
-    is_comparison = any(word in question_lower for word in ['compare', 'comparison', 'difference', 'versus', 'vs', 'better', 'worse', 'best', 'worst'])
-    is_ranking = any(word in question_lower for word in ['rank', 'ranking', 'top', 'bottom', 'highest', 'lowest', 'best', 'worst'])
-    is_loss_question = any(word in question_lower for word in ['loss', 'losing', 'lost', 'maximum loss', 'max loss', 'minimum loss', 'min loss'])
-    is_crop_question = any(word in question_lower for word in ['crop', 'crops', 'tomato', 'potato', 'wheat', 'corn', 'rice'])
-    is_metric_question = any(word in question_lower for word in ['yield', 'spoilage', 'waste', 'defect', 'satisfaction', 'pest', 'machinery', 'delay', 'performance'])
-    
-    # Build specialized prompt based on question type
-    prompt_parts = []
-    prompt_parts.append("You are a professional AI assistant for a Food Supply Chain Analytics Platform.")
-    prompt_parts.append("")
-    prompt_parts.append(context)
-    prompt_parts.append("")
-    prompt_parts.append(f"User Question: {question}")
-    prompt_parts.append("")
-    prompt_parts.append("CRITICAL INSTRUCTIONS - READ CAREFULLY:")
-    prompt_parts.append("2. Use EXACT numbers from the data - never estimate, guess, or add information")
-    prompt_parts.append("3. Be direct and concise")
-    prompt_parts.append("4. If the question asks for one thing, provide only that one thing")
-    prompt_parts.append("")
-    
-    # Add specific instructions based on question type
-    if is_specific_farm:
-        prompt_parts.append("SPECIFIC FARM QUESTION:")
-        prompt_parts.append("- Find the farm name (FarmA, FarmB, FarmC, or FarmD) in the question")
-        prompt_parts.append("- Use ONLY the 'FARM-LEVEL DETAILS' section for that specific farm")
-        prompt_parts.append("- Answer ONLY what is asked about that farm - do not compare or add other farms")
-        prompt_parts.append("- If asking about a crop on that farm, provide ONLY that crop's data from that farm")
-        prompt_parts.append("")
-    
-    if is_comparison or is_ranking:
-        prompt_parts.append("COMPARISON/RANKING QUESTION:")
-        prompt_parts.append("- Use the 'QUICK REFERENCE - FARM RANKINGS' section for rankings")
-        prompt_parts.append("- Compare ONLY what is asked - do not provide all metrics")
-        prompt_parts.append("- State which farm is better/worse and by how much (use exact numbers)")
-        prompt_parts.append("- Keep it focused on the comparison requested")
-        prompt_parts.append("")
-    
-    if is_loss_question:
-        prompt_parts.append("LOSS QUESTION:")
-        prompt_parts.append("- Check the 'CROP RANKINGS' section for 'Maximum Loss Crop' or 'Lowest Loss Crop'")
-        prompt_parts.append("- Answer ONLY the loss question - provide the crop name and loss percentage")
-        prompt_parts.append("- Do NOT provide yield, performance scores, or other metrics unless asked")
-        prompt_parts.append("- Loss = Spoilage % + Waste % + (Defects % × 0.5)")
-        prompt_parts.append("")
-    
-    if is_crop_question:
-        prompt_parts.append("CROP QUESTION:")
-        prompt_parts.append("- Use the 'CROP-LEVEL ANALYSIS' section for crop data across all farms")
-        prompt_parts.append("- Use 'FARM-LEVEL DETAILS' for crop data on specific farms")
-        prompt_parts.append("- Answer ONLY what is asked about the crop - do not provide all metrics")
-        prompt_parts.append("")
-    
-    if is_metric_question:
-        prompt_parts.append("METRIC QUESTION:")
-        prompt_parts.append("- Identify which metric is being asked about (yield, spoilage, waste, etc.)")
-        prompt_parts.append("- Use rankings from 'QUICK REFERENCE' if asking about best/worst")
-        prompt_parts.append("- Use 'FARM-LEVEL DETAILS' for specific farm metrics")
-        prompt_parts.append("- Answer ONLY the metric asked - do not provide other metrics")
-        prompt_parts.append("")
-    
-    prompt_parts.append("RESPONSE RULES:")
-    prompt_parts.append("- Answer ONLY the question asked - nothing more, nothing less")
-    prompt_parts.append("- Use exact numbers from data (include units)")
-    prompt_parts.append("- If question cannot be answered from data, say so clearly in one sentence")
-    prompt_parts.append("")
-    prompt_parts.append("Answer only what is asked:")
-    
-    return "\n".join(prompt_parts)
 
 def answer_question(question, all_farms):
     """Answer questions based on farm data"""

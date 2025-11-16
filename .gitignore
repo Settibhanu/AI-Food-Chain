@@ -1,0 +1,15 @@
+# Ignore local environment file containing secrets
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+.vscode/
+
+# Indic-TTS directory (cloned repo - too large for git)
+Indic-TTS/
