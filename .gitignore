@@ -13,3 +13,5 @@ venv/
 
 # Indic-TTS directory (cloned repo - too large for git)
 Indic-TTS/
+Indic-TTS.zip
+*.zip
