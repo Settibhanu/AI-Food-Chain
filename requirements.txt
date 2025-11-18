@@ -10,3 +10,4 @@ soundfile
 accelerate
 pydub
 gtts
+pmdarima

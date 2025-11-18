@@ -17,6 +17,8 @@ import torch
 from transformers import AutoTokenizer
 import soundfile as sf
 import numpy as np
+import joblib
+from scipy.special import inv_boxcox
 # Load environment variables from .env file
 load_dotenv()
 
@@ -29,14 +31,74 @@ FARM_FILES = {
     'FarmD': 'farm_d_data.csv'
 }
 
+# Field name mapping from new CSV format to old internal field names
+FIELD_NAME_MAPPING = {
+    'Fertilizerkgperha': 'Fertilizer_kg_per_ha',
+    'SoilMoisture%': 'SoilMoisture_%',
+    'TemperatureC': 'Temperature_C',
+    'Rainfallmm': 'Rainfall_mm',
+    'Yieldtonnesperha': 'Yield_tonnes_per_ha',
+    'PestRiskScore': 'PestRiskScore',
+    'HarvestRobotUptime%': 'HarvestRobotUptime_%',
+    'StorageTemperatureC': 'StorageTemperature_C',
+    'Humidity%': 'Humidity_%',
+    'SpoilageRate%': 'SpoilageRate_%',
+    'GradingScore': 'GradingScore',
+    'PredictedShelfLifedays': 'PredictedShelfLife_days',
+    'StorageDays': 'StorageDays',
+    'ProcessType': 'ProcessType',
+    'PackagingType': 'PackagingType',
+    'PackagingSpeedunitspermin': 'PackagingSpeed_units_per_min',
+    'DefectRate%': 'DefectRate_%',
+    'MachineryUptime%': 'MachineryUptime_%',
+    'TransportMode': 'TransportMode',
+    'TransportDistancekm': 'TransportDistance_km',
+    'FuelUsageLper100km': 'FuelUsage_L_per_100km',
+    'DeliveryTimehr': 'DeliveryTime_hr',
+    'DeliveryDelayFlag': 'DeliveryDelayFlag',
+    'SpoilageInTransit%': 'SpoilageInTransit_%',
+    'RetailInventoryunits': 'RetailInventory_units',
+    'SalesVelocityunitsperday': 'SalesVelocity_units_per_day',
+    'DynamicPricingIndex': 'DynamicPricingIndex',
+    'WastePercentage%': 'WastePercentage_%',
+    'HouseholdWastekg': 'HouseholdWaste_kg',
+    'RecipeRecommendationAccuracy%': 'RecipeRecommendationAccuracy_%',
+    'SatisfactionScore010': 'SatisfactionScore_0_10',
+    'WasteType': 'WasteType',
+    'SegregationAccuracy%': 'SegregationAccuracy_%',
+    'UpcyclingRate%': 'UpcyclingRate_%',
+    'BiogasOutputm3': 'BiogasOutput_m3',
+    'minprice': 'minprice',
+    'maxprice': 'maxprice',
+    'modalprice': 'modalprice',
+    'marketname': 'marketname',
+    'latitude': 'latitude',
+    'longitude': 'longitude',
+    'BatchID': 'BatchID',
+    'CropType': 'CropType',
+    'FarmLocation': 'FarmLocation',
+    'HarvestDate': 'HarvestDate'
+}
+
 # In-memory cache for farm data (for efficiency)
 _farm_data_cache = None
 _farm_data_cache_timestamp = None
+
+def normalize_column_names(df):
+    """Rename columns from new CSV format to internal field names"""
+    rename_dict = {}
+    for old_name, new_name in FIELD_NAME_MAPPING.items():
+        if old_name in df.columns:
+            rename_dict[old_name] = new_name
+    if rename_dict:
+        df = df.rename(columns=rename_dict)
+    return df
 
 def load_farm_data(farm_name):
     """Load CSV data for a specific farm"""
     if farm_name in FARM_FILES and os.path.exists(FARM_FILES[farm_name]):
         df = pd.read_csv(FARM_FILES[farm_name])
+        df = normalize_column_names(df)
         if 'HarvestDate' in df.columns:
             df['HarvestDate'] = pd.to_datetime(df['HarvestDate'])
         return df
@@ -61,6 +123,7 @@ def load_all_farms_data():
     for farm_name, file_path in FARM_FILES.items():
         if os.path.exists(file_path):
             df = pd.read_csv(file_path)
+            df = normalize_column_names(df)
             if 'HarvestDate' in df.columns:
                 df['HarvestDate'] = pd.to_datetime(df['HarvestDate'])
             all_data[farm_name] = df
@@ -2103,6 +2166,797 @@ def calculate_performance_score_from_data(data):
     
     total = yield_score + spoilage_score + defect_score + delay_score + waste_score + satisfaction_score + pest_score + uptime_score
     return min(100, max(0, total))
+# --- Model Loading (Runs once at startup) ---
+# Define the crops for which you have models
+CROPS = ['wheat', 'corn', 'lettuce', 'tomato']  # Base crop names
+MODEL_PATH = 'models/' 
+# Placeholder for the loaded models
+trained_models = {}
+model_lambdas = {}  # Store Box-Cox lambda values
+
+def load_models():
+    """Load all trained SARIMA models into memory, handling Box-Cox transformations."""
+    for crop in CROPS:
+        model_file = os.path.join(MODEL_PATH, f'sarima_{crop}_price_model.pkl')
+        
+        if os.path.exists(model_file):
+            print(f"Loading model for {crop} from {model_file}...")
+            try:
+                loaded_obj = joblib.load(model_file)
+                # Handle both dictionary and direct ARIMA object formats
+                if isinstance(loaded_obj, dict) and 'model' in loaded_obj:
+                    trained_models[crop] = loaded_obj['model']
+                    # Store lambda value if present (Box-Cox transformation)
+                    if 'lambda' in loaded_obj:
+                        model_lambdas[crop] = loaded_obj['lambda']
+                        print(f"  Box-Cox lambda for {crop}: {loaded_obj['lambda']:.4f}")
+                    else:
+                        model_lambdas[crop] = None
+                else:
+                    trained_models[crop] = loaded_obj
+                    model_lambdas[crop] = None
+                print(f"Successfully loaded model for {crop}")
+            except Exception as e:
+                print(f"ERROR loading model for {crop}: {e}")
+                trained_models[crop] = None
+                model_lambdas[crop] = None
+        else:
+            print(f"WARNING: Model file not found for {crop} at {model_file}")
+            trained_models[crop] = None
+            model_lambdas[crop] = None
+
+# Load models when the application starts
+load_models() 
+
+# --- New API Endpoint: Price Prediction (Updated for Box-Cox) ---
+@app.route('/api/prediction/price/<crop_name>', methods=['GET'])
+def predict_price(crop_name):
+    """
+    Predicts the crop price for the next 6 months using a loaded SARIMA model.
+    Query parameters: ?months=N (default is 6)
+    Applies inverse Box-Cox transformation if the model was trained with Box-Cox.
+    """
+    crop_name = crop_name.lower()
+    
+    # 1. Input Validation and Model Check
+    if crop_name not in trained_models:
+        return jsonify({"error": f"Model for crop '{crop_name}' not found. Available: {list(trained_models.keys())}"}), 404
+    
+    fitted_model = trained_models[crop_name]
+    
+    if fitted_model is None:
+        return jsonify({"error": f"Model for crop '{crop_name}' could not be loaded."}), 500
+
+    try:
+        # Get forecast length from query string (default to 6 months)
+        forecast_months = int(request.args.get('months', 6))
+        
+        # Perform the Forecast
+        forecast_results = fitted_model.predict(
+            n_periods=forecast_months, 
+            return_conf_int=True, 
+            alpha=0.05
+        )
+        
+        forecast_values = forecast_results[0]
+        conf_int = forecast_results[1]
+        
+        # Apply inverse Box-Cox transformation if lambda is available
+        lam = model_lambdas.get(crop_name)
+        if lam is not None:
+            from scipy.special import inv_boxcox
+            forecast_values = inv_boxcox(forecast_values, lam)
+            conf_int[:, 0] = inv_boxcox(conf_int[:, 0], lam)
+            conf_int[:, 1] = inv_boxcox(conf_int[:, 1], lam)
+        
+        # Generate the Date Index
+        last_date = fitted_model.arima_res_.data.dates[-1] 
+        forecast_index = pd.date_range(start=last_date, periods=forecast_months + 1, freq='MS')[1:]
+
+        # Format the Output for JSON (Display calculated prices)
+        forecast_data = [
+            {
+                "date": date.strftime('%Y-%m-%d'),
+                "predicted_price": round(float(price), 2),
+                "lower_ci": round(float(conf_int[i, 0]), 2),
+                "upper_ci": round(float(conf_int[i, 1]), 2),
+            } 
+            for i, (date, price) in enumerate(zip(forecast_index, forecast_values))
+        ]
+
+        return jsonify({
+            "crop": crop_name.capitalize(),
+            "forecast_months": forecast_months,
+            "currency": "₹",
+            "forecast_data": forecast_data
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error during prediction for {crop_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
+# --- HTML Endpoint: Display all price predictions with graphs ---
+@app.route('/api/prediction/price', methods=['GET'])
+def predict_price_all():
+    """
+    Displays price predictions for all trained crops in an HTML page with interactive graphs.
+    Each crop gets a bold title and a Chart.js visualization with confidence intervals.
+    """
+    try:
+        forecast_months = int(request.args.get('months', 6))
+        
+        # Collect forecast data for all crops with trained models
+        all_forecasts = {}
+        for crop in trained_models.keys():
+            if trained_models[crop] is None:
+                continue
+            
+            try:
+                model = trained_models[crop]
+                
+                # Perform the Forecast
+                forecast_results = model.predict(
+                    n_periods=forecast_months, 
+                    return_conf_int=True, 
+                    alpha=0.05
+                )
+                
+                forecast_values = forecast_results[0]
+                conf_int = forecast_results[1]
+                
+                # Apply inverse Box-Cox transformation if lambda is available
+                lam = model_lambdas.get(crop)
+                if lam is not None:
+                    from scipy.special import inv_boxcox
+                    forecast_values = inv_boxcox(forecast_values, lam)
+                    conf_int[:, 0] = inv_boxcox(conf_int[:, 0], lam)
+                    conf_int[:, 1] = inv_boxcox(conf_int[:, 1], lam)
+                
+                # Generate the Date Index
+                last_date = model.arima_res_.data.dates[-1] 
+                forecast_index = pd.date_range(start=last_date, periods=forecast_months + 1, freq='MS')[1:]
+                
+                # Format the Output
+                forecast_data = {
+                    "dates": [date.strftime('%Y-%m-%d') for date in forecast_index],
+                    "prices": [float(round(price, 2)) for price in forecast_values],
+                    "lower_ci": [float(round(conf_int[i, 0], 2)) for i in range(len(forecast_values))],
+                    "upper_ci": [float(round(conf_int[i, 1], 2)) for i in range(len(forecast_values))],
+                }
+                
+                all_forecasts[crop.capitalize()] = forecast_data
+                
+            except Exception as e:
+                print(f"Error generating forecast for {crop}: {e}")
+                all_forecasts[crop.capitalize()] = None
+        
+        if not all_forecasts:
+            return "<h1>No trained models available</h1>", 404
+        
+        # Generate HTML with Chart.js graphs
+        html_content = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Price Predictions - All Crops</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            min-height: 100vh; 
+            padding: 30px 20px; 
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        .header { 
+            text-align: center; 
+            color: white; 
+            margin-bottom: 40px; 
+        }
+        .header h1 { 
+            font-size: 36px; 
+            margin-bottom: 10px; 
+        }
+        .header p { 
+            font-size: 16px; 
+            opacity: 0.9; 
+        }
+        .crop-section { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 30px; 
+            margin-bottom: 30px; 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2); 
+        }
+        .crop-title { 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #1a5f7a; 
+            margin-bottom: 20px; 
+            padding-bottom: 10px; 
+            border-bottom: 3px solid #667eea; 
+        }
+        .chart-wrapper { 
+            position: relative; 
+            height: 400px; 
+            margin-bottom: 20px; 
+        }
+        .forecast-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px; 
+            font-size: 14px; 
+        }
+        .forecast-table thead { 
+            background-color: #1a5f7a; 
+            color: white; 
+        }
+        .forecast-table th { 
+            padding: 12px; 
+            text-align: left; 
+            font-weight: 600; 
+        }
+        .forecast-table td { 
+            padding: 10px 12px; 
+            border-bottom: 1px solid #ddd; 
+        }
+        .forecast-table tbody tr:hover { 
+            background-color: #f5f5f5; 
+        }
+        .forecast-table tbody tr:nth-child(even) { 
+            background-color: #f9f9f9; 
+        }
+        .back-btn { 
+            display: inline-block; 
+            background: white; 
+            color: #667eea; 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            font-size: 14px; 
+            font-weight: 600; 
+            text-decoration: none; 
+            transition: all 0.3s; 
+            margin-top: 10px; 
+        }
+        .back-btn:hover { 
+            background: #f0f0f0; 
+            transform: translateY(-2px); 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+        }
+        .no-data { 
+            color: #e74c3c; 
+            text-align: center; 
+            padding: 20px; 
+            background-color: #fadbd8; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Price Predictions</h1>
+            <p>6-Month Forecast with 95% Confidence Intervals (₹/quintal)</p>
+            <a href="/" class="back-btn">← Back to Dashboard</a>
+        </div>
+"""
+        
+        # Add each crop's forecast section
+        for crop_name, forecast_data in all_forecasts.items():
+            if forecast_data is None:
+                html_content += f"""
+        <div class="crop-section">
+            <div class="crop-title">{crop_name}</div>
+            <div class="no-data">Unable to generate forecast for {crop_name}</div>
+        </div>
+"""
+                continue
+            
+            chart_id = f"chart_{crop_name.lower().replace(' ', '_')}"
+            dates = forecast_data['dates']
+            prices = forecast_data['prices']
+            lower_ci = forecast_data['lower_ci']
+            upper_ci = forecast_data['upper_ci']
+            
+            # Use raw calculated values directly
+            
+            html_content += f"""
+        <div class="crop-section">
+            <div class="crop-title">{crop_name}</div>
+            <div class="chart-wrapper">
+                <canvas id="{chart_id}"></canvas>
+            </div>
+            <table class="forecast-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Predicted Price (₹/quintal)</th>
+                        <th>Lower CI (₹/quintal)</th>
+                        <th>Upper CI (₹/quintal)</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+            
+            for i, date in enumerate(dates):
+                html_content += f"""
+                    <tr>
+                        <td>{date}</td>
+                        <td>{prices[i]:,.2f}</td>
+                        <td>{lower_ci[i]:,.2f}</td>
+                        <td>{upper_ci[i]:,.2f}</td>
+                    </tr>
+"""
+            
+            html_content += """
+                </tbody>
+            </table>
+        </div>
+"""
+            
+            # Add Chart.js script for this crop
+            html_content += f"""
+    <script>
+        const ctx_{chart_id} = document.getElementById('{chart_id}').getContext('2d');
+        new Chart(ctx_{chart_id}, {{
+            type: 'line',
+            data: {{
+                labels: {dates},
+                datasets: [
+                    {{
+                        label: 'Predicted Price',
+                        data: {prices},
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 3,
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: 6,
+                        pointBackgroundColor: '#667eea',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointHoverRadius: 8
+                    }},
+                    {{
+                        label: 'Upper Confidence Interval (95%)',
+                        data: {upper_ci},
+                        borderColor: '#e74c3c',
+                        borderWidth: 1,
+                        borderDash: [5, 5],
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 0
+                    }},
+                    {{
+                        label: 'Lower Confidence Interval (95%)',
+                        data: {lower_ci},
+                        borderColor: '#e74c3c',
+                        borderWidth: 1,
+                        borderDash: [5, 5],
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 0
+                    }}
+                ]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{
+                    legend: {{
+                        display: true,
+                        position: 'top',
+                        labels: {{
+                            font: {{ size: 12, weight: 'bold' }},
+                            padding: 15,
+                            usePointStyle: true
+                        }}
+                    }},
+                    title: {{
+                        display: false
+                    }}
+                }},
+                scales: {{
+                    y: {{
+                        beginAtZero: false,
+                        ticks: {{
+                            callback: function(value) {{
+                                return '₹' + value.toLocaleString('en-IN');
+                            }},
+                            font: {{ size: 11 }}
+                        }},
+                        title: {{
+                            display: true,
+                            text: 'Price (₹/quintal)',
+                            font: {{ size: 12, weight: 'bold' }}
+                        }}
+                    }},
+                    x: {{
+                        ticks: {{
+                            font: {{ size: 11 }}
+                        }},
+                        title: {{
+                            display: true,
+                            text: 'Date',
+                            font: {{ size: 12, weight: 'bold' }}
+                        }}
+                    }}
+                }}
+            }}
+        }});
+    </script>
+"""
+        
+        html_content += """
+    </div>
+</body>
+</html>
+"""
+        
+        return html_content
+    
+    except Exception as e:
+        app.logger.error(f"Error in predict_price_all: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"<h1>Error generating predictions</h1><p>{str(e)}</p>", 500
+
+
+# --- Crop Recommendation System ---
+def get_average_crop_price(crop_name, months=6):
+    """
+    Get average predicted price for a crop over next 6 months.
+    """
+    try:
+        if crop_name.lower() not in trained_models:
+            return None
+        
+        model = trained_models[crop_name.lower()]
+        if model is None:
+            return None
+        
+        forecast_results = model.predict(n_periods=months, return_conf_int=True, alpha=0.05)
+        forecast_values = forecast_results[0]
+        
+        # Apply inverse Box-Cox transformation if needed
+        lam = model_lambdas.get(crop_name.lower())
+        if lam is not None:
+            forecast_values = inv_boxcox(forecast_values, lam)
+        
+        return float(np.mean(forecast_values))
+    except Exception as e:
+        print(f"Error predicting price for {crop_name}: {e}")
+        return None
+
+
+def get_farm_crop_history(farm_name):
+    """
+    Get historical data for each crop grown on a farm.
+    Returns: dict with crop names as keys and their performance metrics as values.
+    """
+    data = load_farm_data(farm_name)
+    if data.empty:
+        return {}
+    
+    farm_crop_metrics = {}
+    
+    for crop in CROPS:
+        crop_data = data[data['CropType'].str.lower() == crop.lower()]
+        
+        if not crop_data.empty:
+            farm_crop_metrics[crop] = {
+                'avg_yield': float(crop_data['Yield_tonnes_per_ha'].mean()),
+                'avg_spoilage': float(crop_data['SpoilageRate_%'].mean()),
+                'avg_defects': float(crop_data['DefectRate_%'].mean()),
+                'avg_shelf_life': float(crop_data['PredictedShelfLife_days'].mean()),
+                'avg_pest_risk': float(crop_data['PestRiskScore'].mean()),
+                'records_count': len(crop_data),
+                'last_grown': crop_data['HarvestDate'].max() if 'HarvestDate' in crop_data.columns else None
+            }
+    
+    return farm_crop_metrics
+
+
+def calculate_crop_profitability_score(farm_name, crop_name):
+    """
+    Calculate a profitability score for a crop on a specific farm.
+    Considers: predicted price, historical yield, spoilage, defects, and shelf life.
+    Higher score = more profitable.
+    """
+    # Get predicted price
+    avg_price = get_average_crop_price(crop_name)
+    if avg_price is None or avg_price == 0:
+        # Use default price based on crop type if prediction fails
+        default_prices = {
+            'wheat': 2200,
+            'corn': 1800,
+            'lettuce': 1200,
+            'tomato': 1500
+        }
+        avg_price = default_prices.get(crop_name.lower(), 1500)
+    
+    # Get farm's historical performance with this crop
+    farm_metrics = get_farm_crop_history(farm_name)
+    crop_metrics = farm_metrics.get(crop_name.lower(), {})
+    
+    # If farm hasn't grown this crop before, use industry averages
+    if not crop_metrics:
+        yield_score = 6.0  # Industry average
+        spoilage_score = 10.0  # Industry average
+        defect_score = 5.0  # Industry average
+        shelf_life_score = 14.0  # Industry average
+        pest_risk_score = 30.0  # Industry average
+    else:
+        yield_score = crop_metrics.get('avg_yield', 6.0)
+        spoilage_score = crop_metrics.get('avg_spoilage', 10.0)
+        defect_score = crop_metrics.get('avg_defects', 5.0)
+        shelf_life_score = crop_metrics.get('avg_shelf_life', 14.0)
+        pest_risk_score = crop_metrics.get('avg_pest_risk', 30.0)
+    
+    # Profitability calculation:
+    # - Higher price = better
+    # - Higher yield = better
+    # - Lower spoilage = better
+    # - Lower defects = better
+    # - Longer shelf life = better
+    # - Lower pest risk = better
+    
+    price_factor = (avg_price / 1000) * 30  # Price impact (normalized to ~1000 range)
+    yield_factor = yield_score * 2  # Yield impact
+    spoilage_factor = (20 - spoilage_score) * 1.5  # Negative impact
+    defect_factor = (10 - defect_score) * 2  # Negative impact
+    shelf_life_factor = shelf_life_score * 0.8  # Storage efficiency
+    pest_risk_factor = (50 - pest_risk_score) * 0.5  # Health risk mitigation
+    
+    total_score = (
+        price_factor +
+        yield_factor +
+        spoilage_factor +
+        defect_factor +
+        shelf_life_factor +
+        pest_risk_factor
+    )
+    
+    return max(0, total_score)  # Ensure non-negative
+
+
+def optimize_crop_allocation():
+    """
+    Optimize crop allocation across all farms to prevent overlap.
+    Uses a greedy algorithm to allocate crops to farms that score highest for each crop.
+    
+    Returns: dict with farm names as keys and recommended crop as value.
+    """
+    try:
+        farms = list(FARM_FILES.keys())
+        crops = CROPS
+        
+        # Calculate profitability scores for each farm-crop combination
+        allocation_matrix = {}
+        for farm in farms:
+            allocation_matrix[farm] = {}
+            for crop in crops:
+                try:
+                    score = calculate_crop_profitability_score(farm, crop)
+                    allocation_matrix[farm][crop] = score
+                except Exception as e:
+                    print(f"Error calculating score for {farm}-{crop}: {e}")
+                    allocation_matrix[farm][crop] = 0
+        
+        # Greedy allocation: assign each crop to the farm that benefits most
+        allocations = {}
+        remaining_crops = set(crops)
+        allocated_farms = set()
+        
+        # Create a ranking of all farm-crop combinations
+        rankings = []
+        for farm in farms:
+            for crop in crops:
+                rankings.append({
+                    'farm': farm,
+                    'crop': crop,
+                    'score': allocation_matrix[farm][crop]
+                })
+        
+        # Sort by score (descending)
+        rankings.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Allocate greedily
+        for ranking in rankings:
+            farm = ranking['farm']
+            crop = ranking['crop']
+            
+            # Allocate if both farm and crop are still available
+            if farm not in allocated_farms and crop in remaining_crops:
+                allocations[farm] = {
+                    'crop': crop,
+                    'score': ranking['score'],
+                    'crop_scores': allocation_matrix[farm]
+                }
+                allocated_farms.add(farm)
+                remaining_crops.remove(crop)
+        
+        return allocations
+    except Exception as e:
+        print(f"Error in optimize_crop_allocation: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
+@app.route('/api/farm/<farm_name>/crop-recommendation', methods=['GET'])
+def get_crop_recommendation(farm_name):
+    """
+    Get personalized crop recommendation for a farm to maximize profit.
+    Considers cross-farm optimization to prevent market saturation.
+    """
+    try:
+        # Validate farm exists
+        if farm_name not in FARM_FILES:
+            return jsonify({'error': f'Farm {farm_name} not found'}), 404
+        
+        # Validate farm data exists
+        farm_data = load_farm_data(farm_name)
+        if farm_data.empty:
+            return jsonify({'error': f'No data available for {farm_name}'}), 404
+        
+        # Get optimal allocation for all farms
+        optimal_allocation = optimize_crop_allocation()
+        
+        if not optimal_allocation:
+            return jsonify({'error': 'Unable to calculate allocations for any farms'}), 500
+        
+        if farm_name not in optimal_allocation:
+            return jsonify({'error': f'Unable to calculate recommendation for {farm_name}'}), 500
+        
+        farm_recommendation = optimal_allocation[farm_name]
+        recommended_crop = farm_recommendation['crop']
+        
+        # Get detailed metrics for the recommended crop
+        avg_price = get_average_crop_price(recommended_crop)
+        if avg_price is None:
+            default_prices = {
+                'wheat': 2200,
+                'corn': 1800,
+                'lettuce': 1200,
+                'tomato': 1500
+            }
+            avg_price = default_prices.get(recommended_crop.lower(), 1500)
+        
+        farm_metrics = get_farm_crop_history(farm_name)
+        crop_metrics = farm_metrics.get(recommended_crop.lower(), {})
+        
+        # Get all crop prices for comparison
+        crop_prices = {}
+        crop_scores = {}
+        for crop in CROPS:
+            price = get_average_crop_price(crop)
+            if price is None:
+                default_prices = {
+                    'wheat': 2200,
+                    'corn': 1800,
+                    'lettuce': 1200,
+                    'tomato': 1500
+                }
+                price = default_prices.get(crop.lower(), 1500)
+            score = calculate_crop_profitability_score(farm_name, crop)
+            crop_prices[crop] = round(price, 2)
+            crop_scores[crop] = round(score, 2)
+        
+        # Calculate profit potential (based on yield, price, and efficiency)
+        if crop_metrics:
+            expected_yield = crop_metrics.get('avg_yield', 6.0)
+            estimated_profit_per_ha = (expected_yield * avg_price) if avg_price else 0
+            profit_confidence = 'High'
+            experience_level = 'Experienced'
+        else:
+            expected_yield = 6.0  # Industry average
+            estimated_profit_per_ha = (expected_yield * avg_price) if avg_price else 0
+            profit_confidence = 'Medium'
+            experience_level = 'New'
+        
+        # Get other farms' recommendations for context
+        other_recommendations = {}
+        for other_farm in FARM_FILES.keys():
+            if other_farm != farm_name and other_farm in optimal_allocation:
+                other_recommendations[other_farm] = optimal_allocation[other_farm]['crop']
+        
+        # Reasoning for recommendation
+        reasoning = []
+        if crop_metrics:
+            reasoning.append(f"Your farm has strong track record with {recommended_crop.title()} (avg yield: {crop_metrics.get('avg_yield', 0):.1f}t/ha)")
+        else:
+            reasoning.append(f"{recommended_crop.title()} shows excellent market potential")
+        
+        reasoning.append(f"Predicted average price: ₹{avg_price:.2f}/quintal")
+        reasoning.append(f"Profitability score: {farm_recommendation['score']:.1f} (out of 100)")
+        
+        if other_recommendations:
+            other_crops = [v for k, v in other_recommendations.items() if v != recommended_crop]
+            if other_crops:
+                reasoning.append(f"Unique choice - prevents market overlap with other farms growing {', '.join(other_crops)}")
+        
+        return jsonify({
+            'farm': farm_name,
+            'recommended_crop': recommended_crop.title(),
+            'recommendation_score': round(farm_recommendation['score'], 2),
+            'predicted_price': round(avg_price, 2) if avg_price else 0,
+            'expected_yield_tonnes_per_ha': round(expected_yield, 2),
+            'estimated_profit_per_ha': round(estimated_profit_per_ha, 2),
+            'profit_confidence': profit_confidence,
+            'experience_level': experience_level,
+            'crop_comparison': {
+                'prices': crop_prices,
+                'profitability_scores': crop_scores
+            },
+            'reasoning': reasoning,
+            'other_farm_recommendations': other_recommendations,
+            'optimization_note': 'Allocation optimized across all farms to prevent market saturation'
+        })
+    
+    except Exception as e:
+        app.logger.error(f"Error in crop recommendation for {farm_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
+
+@app.route('/api/farm/crop-recommendations-all', methods=['GET'])
+def get_all_crop_recommendations():
+    """
+    Get crop recommendations for all farms with cross-farm optimization.
+    """
+    try:
+        optimal_allocation = optimize_crop_allocation()
+        
+        if not optimal_allocation:
+            return jsonify({'error': 'Unable to calculate allocations'}), 500
+        
+        recommendations = {}
+        for farm_name in FARM_FILES.keys():
+            if farm_name in optimal_allocation:
+                farm_rec = optimal_allocation[farm_name]
+                price = get_average_crop_price(farm_rec['crop'])
+                if price is None:
+                    default_prices = {
+                        'wheat': 2200,
+                        'corn': 1800,
+                        'lettuce': 1200,
+                        'tomato': 1500
+                    }
+                    price = default_prices.get(farm_rec['crop'].lower(), 1500)
+                
+                recommendations[farm_name] = {
+                    'recommended_crop': farm_rec['crop'].title(),
+                    'profitability_score': round(farm_rec['score'], 2),
+                    'predicted_price': round(price, 2)
+                }
+        
+        return jsonify({
+            'recommendations': recommendations,
+            'optimization_type': 'cross-farm-optimized',
+            'note': 'Each farm is assigned a unique crop to maximize market advantage'
+        })
+    
+    except Exception as e:
+        app.logger.error(f"Error in all crop recommendations: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5003)
+    app.run(debug=True, port=5003) 

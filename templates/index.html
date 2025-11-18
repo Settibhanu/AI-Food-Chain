@@ -89,7 +89,7 @@
         .insight-icon { font-size: 12px; margin-right: 4px; animation: sparkle 2s infinite; }
         .chart-container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .chart-container h3 { color: #1a5f7a; margin-bottom: 15px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
-        .chart-wrapper { position: relative; height: 300px; }
+        .chart-wrapper { position: relative; height: 220px; }
         .ai-suggestion-box { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 12px; margin-top: 20px; display: flex; gap: 12px; overflow: visible; height: auto; min-height: auto; max-height: none; }
         .overview-single-farm .ai-suggestion-box { margin-top: 0; }
         .farm-stage-container .ai-suggestion-box,
@@ -427,6 +427,21 @@
         .chatbot-typing span:nth-child(2) { animation-delay: 0.2s; }
         .chatbot-typing span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: 0.7; } 30% { transform: translateY(-10px); opacity: 1; } }
+        
+        /* Price Prediction Crop Buttons */
+        .crop-forecast-btn { transition: all 0.3s ease !important; }
+        .crop-forecast-btn:hover { 
+            transform: translateY(-3px) !important; 
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2) !important; 
+            background: white !important;
+            color: #667eea !important;
+        }
+        .crop-forecast-btn:active { transform: translateY(-1px) !important; }
+        
+        @media (max-width: 768px) { 
+            .crop-forecast-btn { padding: 14px 16px !important; font-size: 13px !important; }
+        }
+        
         @media (max-width: 768px) { 
             .header-content { flex-direction: column; gap: 10px; align-items: flex-start; }
             .header-left { flex-direction: column; gap: 10px; width: 100%; }
@@ -751,6 +766,8 @@
         <div class="sidebar-item" data-section="processing" onclick="showSection('processing')"><span id="sidebar-processing-icon"></span>Processing</div>
         <div class="sidebar-item" data-section="transportation" onclick="showSection('transportation')"><span id="sidebar-transportation-icon"></span>Transport</div>
         <div class="sidebar-item" data-section="retail" onclick="showSection('retail')"><span id="sidebar-retail-icon"></span>Retail</div>
+        <div class="sidebar-item" data-section="price" onclick="showSection('price')"><span id="sidebar-price-icon"></span>Price Prediction</div>
+        <div class="sidebar-item" data-section="recommendation" onclick="showSection('recommendation')"><span id="sidebar-recommendation-icon">🎯</span>Crop Recommendation</div>
         <div class="sidebar-item" data-section="consumption" onclick="showSection('consumption')"><span id="sidebar-consumption-icon"></span>Consumption</div>
         <div class="sidebar-item" data-section="waste" onclick="showSection('waste')"><span id="sidebar-waste-icon"></span>Waste</div>
         <div class="sidebar-item" data-section="security" onclick="showSection('security')"><span id="sidebar-security-icon"></span>Security</div>
@@ -770,6 +787,15 @@
                     <div class="chart-container"><h3><span id="chart3-sparkle-icon"></span>Performance Score</h3><div class="chart-wrapper"><canvas id="overviewChart3"></canvas></div></div>
                     <div class="chart-container"><h3><span id="chart4-sparkle-icon"></span>Defect Rate Comparison</h3><div class="chart-wrapper"><canvas id="overviewChart4"></canvas></div></div>
                 </div>
+                <div class="row mt-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <p class="mb-0">Market price forecasts moved to the <a href="javascript:void(0)" onclick="showSection('price')">Price Prediction</a> tab for full details.</p>
+            </div>
+        </div>
+    </div>
+</div> 
             </div>
 
             <div id="production" class="section">
@@ -812,6 +838,54 @@
                 <div id="consumption-container"></div>
                 <div class="chart-container farm-stage-charts"><h3><span id="consumption-chart-sparkle-icon"></span>Household Metrics</h3><div class="chart-wrapper"><canvas id="consumptionChart1"></canvas></div></div>
                 <button class="details-button" onclick="viewFarmDetails('consumption')"><span id="consumption-button-icon"></span>View Consumption Details</button>
+            </div>
+
+            <div id="price" class="section">
+                <div class="section-title"><h2 style="color: #1a5f7a; display: flex; align-items: center; gap: 8px;"><span id="price-title-icon"></span>Price Prediction</h2><span id="price-sparkle-icon"></span></div>
+                <div style="max-width: 900px; margin: 0 auto;">
+                    <div class="chart-container" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; padding: 40px 30px; text-align: center; color: white;">
+                        <h3 style="color: white; margin-bottom: 20px; font-size: 20px; display: flex; align-items: center; justify-content: center; gap: 10px;"><span id="price-chart-sparkle-icon"></span>6-Month Crop Price Forecasts</h3>
+                        <p style="margin-bottom: 30px; font-size: 15px; opacity: 0.95;">View detailed price predictions with confidence intervals for all trained crops</p>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                            <button class="crop-forecast-btn" onclick="window.location.href='/api/prediction/price'" style="background: white; color: #667eea; border: 2px solid white; padding: 18px 20px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                                <span style="font-size: 18px;">📊</span>
+                                View All Crops
+                            </button>
+                            <button class="crop-forecast-btn" onclick="loadPricePrediction('wheat')" style="background: rgba(255,255,255,0.2); color: white; border: 2px solid white; padding: 18px 20px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                <span style="font-size: 18px;">🌾</span>
+                                Wheat
+                            </button>
+                            <button class="crop-forecast-btn" onclick="loadPricePrediction('corn')" style="background: rgba(255,255,255,0.2); color: white; border: 2px solid white; padding: 18px 20px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                <span style="font-size: 18px;">🌽</span>
+                                Corn
+                            </button>
+                            <button class="crop-forecast-btn" onclick="loadPricePrediction('tomato')" style="background: rgba(255,255,255,0.2); color: white; border: 2px solid white; padding: 18px 20px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                <span style="font-size: 18px;">🍅</span>
+                                Tomato
+                            </button>
+                            <button class="crop-forecast-btn" onclick="loadPricePrediction('lettuce')" style="background: rgba(255,255,255,0.2); color: white; border: 2px solid white; padding: 18px 20px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                <span style="font-size: 18px;">🥬</span>
+                                Lettuce
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-container" style="margin-top: 20px;">
+                        <div class="chart-wrapper" style="height: 380px;">
+                            <canvas id="pricePredictionChart"></canvas>
+                        </div>
+                        <div class="text-center mt-3" style="padding-top: 15px; border-top: 1px solid #ecf0f1;">
+                            <span class="badge bg-primary" style="background: #667eea !important; padding: 6px 12px; font-size: 12px; margin-right: 10px;">₹/quintal</span>
+                            <strong id="aiPriceInsight" style="color: #1a5f7a; font-size: 14px;">Select a crop to view the 6-month price forecast with confidence intervals.</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="recommendation" class="section">
+                <div class="section-title"><h2 style="color: #1a5f7a; display: flex; align-items: center; gap: 8px;"><span id="recommendation-title-icon">🎯</span>Crop Recommendation</h2><span id="recommendation-sparkle-icon"></span></div>
+                <div id="recommendation-container"></div>
             </div>
 
             <div id="waste" class="section">
@@ -1008,6 +1082,11 @@
             if (sidebarItem) {
                 sidebarItem.classList.add('active');
             }
+            // If Price tab selected, load forecast
+            if (sectionId === 'price') {
+                // Default crop is 'wheat' for now; could add crop selector later
+                loadPricePrediction('wheat');
+            }
 
             // Handle Overview AI Insights box visibility
             const overviewSuggestionBox = document.getElementById('overviewSuggestion');
@@ -1046,6 +1125,8 @@
                     loadComparisonConsumption();
                 } else if (sectionId === 'waste') {
                     loadComparisonWaste();
+                } else if (sectionId === 'recommendation') {
+                    loadCropRecommendations();
                 } else if (sectionId === 'security') {
                     // Security section doesn't need farm data loading
                     initializeSecuritySection();
@@ -1067,6 +1148,8 @@
                     loadConsumptionData();
                 } else if (sectionId === 'waste') {
                     loadWasteData();
+                } else if (sectionId === 'recommendation') {
+                    loadCropRecommendations();
                 } else if (sectionId === 'security') {
                     // Security section doesn't need farm data loading
                     initializeSecuritySection();
@@ -3118,6 +3201,7 @@
             document.getElementById('sidebar-processing-icon').innerHTML = getIcon('processing', 'lg');
             document.getElementById('sidebar-transportation-icon').innerHTML = getIcon('transportation', 'lg');
             document.getElementById('sidebar-retail-icon').innerHTML = getIcon('retail', 'lg');
+            document.getElementById('sidebar-price-icon').innerHTML = getIcon('sales', 'lg');
             document.getElementById('sidebar-consumption-icon').innerHTML = getIcon('consumption', 'lg');
             document.getElementById('sidebar-waste-icon').innerHTML = getIcon('waste', 'lg');
             document.getElementById('sidebar-security-icon').innerHTML = getIcon('security', 'lg');
@@ -3129,6 +3213,7 @@
             document.getElementById('processing-title-icon').innerHTML = getIcon('processing', 'xl');
             document.getElementById('transportation-title-icon').innerHTML = getIcon('transportation', 'xl');
             document.getElementById('retail-title-icon').innerHTML = getIcon('retail', 'xl');
+            document.getElementById('price-title-icon').innerHTML = getIcon('sales', 'xl');
             document.getElementById('consumption-title-icon').innerHTML = getIcon('consumption', 'xl');
             document.getElementById('waste-title-icon').innerHTML = getIcon('waste', 'xl');
             document.getElementById('security-title-icon').innerHTML = getIcon('security', 'xl');
@@ -3141,6 +3226,7 @@
             document.getElementById('processing-sparkle-icon').innerHTML = sparkleIcon;
             document.getElementById('transportation-sparkle-icon').innerHTML = sparkleIcon;
             document.getElementById('retail-sparkle-icon').innerHTML = sparkleIcon;
+            document.getElementById('price-sparkle-icon').innerHTML = sparkleIcon;
             document.getElementById('consumption-sparkle-icon').innerHTML = sparkleIcon;
             document.getElementById('waste-sparkle-icon').innerHTML = sparkleIcon;
             document.getElementById('security-sparkle-icon').innerHTML = sparkleIcon;
@@ -3157,6 +3243,7 @@
             document.getElementById('retail-chart-sparkle-icon').innerHTML = sparkleIcon;
             document.getElementById('consumption-chart-sparkle-icon').innerHTML = sparkleIcon;
             document.getElementById('waste-chart-sparkle-icon').innerHTML = sparkleIcon;
+            document.getElementById('price-chart-sparkle-icon').innerHTML = sparkleIcon;
             
             // Button icons
             document.getElementById('production-button-icon').innerHTML = sparkleIcon;
@@ -3802,5 +3889,340 @@
             tryInitializeChatbot();
         }
     </script>
+    <script>
+    // Global variable to hold the chart instance
+    let priceChartInstance = null;
+
+    // Function to handle fetching and rendering the specific crop forecast
+    async function loadPricePrediction(cropName) {
+        // 1. Update Tab State (Visual feedback)
+        document.querySelectorAll('#cropForecastTabs button').forEach(button => {
+            button.classList.remove('active');
+            if (button.getAttribute('data-crop') === cropName) {
+                button.classList.add('active');
+            }
+        });
+
+        const endpoint = `/api/prediction/price/${cropName}`;
+        const insightElement = document.getElementById('aiPriceInsight');
+        insightElement.innerText = `Fetching forecast for ${cropName.toUpperCase()}...`;
+
+        try {
+            const response = await fetch(endpoint);
+            if (!response.ok) {
+                insightElement.innerText = `Error: Model for ${cropName.toUpperCase()} not found or API failed.`;
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // Extract data
+            const currency = data.currency || '₹';
+            const forecastDates = data.forecast_data.map(item => item.date.substring(0, 7)); // YYYY-MM
+            const predictedPrices = data.forecast_data.map(item => item.predicted_price);
+            const lowerCI = data.forecast_data.map(item => item.lower_ci);
+            const upperCI = data.forecast_data.map(item => item.upper_ci);
+            
+            // Render the chart
+            renderPriceChart(cropName.toUpperCase(), forecastDates, predictedPrices, lowerCI, upperCI, currency);
+            
+            // Update Insight
+            insightElement.innerText = `Forecast successful. Predicted price for the next ${data.forecast_months} months shown below.`;
+            
+        } catch (error) {
+            console.error(`Failed to load price prediction for ${cropName}:`, error);
+        }
+    }
+
+    // Function to create/update the Chart.js visualization
+    function renderPriceChart(cropName, dates, prices, lowerCI, upperCI, currency) {
+        const ctx = document.getElementById('pricePredictionChart').getContext('2d');
+        
+        // Destroy existing chart if it exists
+        if (priceChartInstance) {
+            priceChartInstance.destroy();
+        }
+
+        priceChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [
+                    // Predicted Price Line
+                    {
+                        label: `Predicted Price (${currency})`,
+                        data: prices,
+                        borderColor: 'rgb(54, 162, 235)', // Blue
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.2
+                    },
+                    // Confidence Interval Area (Lower bound defines the start of the fill)
+                    {
+                        label: '95% CI Lower',
+                        data: lowerCI,
+                        borderColor: 'rgba(0, 0, 0, 0)',
+                        backgroundColor: 'rgba(173, 216, 230, 0.3)', // Light blue fill
+                        pointRadius: 0,
+                        tension: 0.2,
+                        fill: '-1' // Fill up to the next dataset (Predicted Price line)
+                    },
+                    // Confidence Interval Area (Upper bound defines the end of the fill)
+                    {
+                        label: '95% CI Upper',
+                        data: upperCI,
+                        borderColor: 'rgba(0, 0, 0, 0)',
+                        backgroundColor: 'rgba(173, 216, 230, 0.3)', 
+                        pointRadius: 0,
+                        tension: 0.2,
+                        fill: 'start' // Fill starts from the line below it
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false, // Respects the 350px height set in HTML
+                scales: {
+                    y: {
+                        title: {
+                            display: true,
+                            text: `Price (${currency}/unit)`
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true
+                    },
+                    title: {
+                        display: true,
+                        text: `${cropName} Price Forecast using SARIMA`
+                    }
+                }
+            }
+        });
+    }
+
+    // 3. Initial Load: Load the Tomato forecast when the page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        loadPricePrediction('tomato');
+        loadCropRecommendations();
+    });
+
+    // Crop Recommendation Functions
+    async function loadCropRecommendations() {
+        const container = document.getElementById('recommendation-container');
+        container.innerHTML = '<div style="text-align: center; padding: 20px;"><p>Loading crop recommendations...</p></div>';
+
+        try {
+            const response = await fetch('/api/farm/crop-recommendations-all');
+            if (!response.ok) throw new Error('Failed to fetch recommendations');
+            
+            const data = await response.json();
+            displayCropRecommendations(data);
+        } catch (error) {
+            console.error('Error loading crop recommendations:', error);
+            container.innerHTML = '<div style="color: #e74c3c; padding: 20px;"><p>⚠️ Error loading recommendations. Please try again.</p></div>';
+        }
+    }
+
+    function displayCropRecommendations(data) {
+        const container = document.getElementById('recommendation-container');
+        let html = `
+            <div style="max-width: 1200px; margin: 0 auto;">
+                <div style="background: linear-gradient(135deg, #1a5f7a 0%, #0f3a4f 100%); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 20px;">🎯 Optimized Crop Allocation</h3>
+                    <p style="margin: 0; opacity: 0.9;">Each farm is assigned a unique crop to maximize profit and prevent market saturation</p>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+        `;
+
+        // Get current farm from header
+        const currentFarmTab = document.querySelector('.farm-tab.active');
+        const currentFarm = currentFarmTab ? currentFarmTab.textContent.trim().replace(' ', '') : 'all';
+
+        // Create cards for each farm
+        for (const [farm, rec] of Object.entries(data.recommendations)) {
+            const cropEmojis = {
+                'Wheat': '🌾',
+                'Corn': '🌽',
+                'Lettuce': '🥬',
+                'Tomato': '🍅'
+            };
+            const emoji = cropEmojis[rec.recommended_crop] || '🌱';
+            const isCurrentFarm = farm.replace('Farm', '') === currentFarm.replace('Farm', '');
+            const highlight = isCurrentFarm ? 'border: 3px solid #667eea; box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);' : '';
+
+            html += `
+                <div style="background: white; border-radius: 12px; padding: 25px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); ${highlight} cursor: pointer; transition: all 0.3s;" onclick="loadFarmRecommendation('${farm}')">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                        <h4 style="margin: 0; color: #1a5f7a; font-size: 18px;">${farm}</h4>
+                        <span style="font-size: 16px; color: #7f8c8d;">${isCurrentFarm ? '👈 You' : ''}</span>
+                    </div>
+                    
+                    <div style="background: linear-gradient(135deg, ${getGradientColor(rec.recommended_crop)}); border-radius: 8px; padding: 20px; text-align: center; color: white; margin-bottom: 15px;">
+                        <div style="font-size: 40px; margin-bottom: 10px;">${emoji}</div>
+                        <h3 style="margin: 0 0 5px 0; font-size: 24px; font-weight: bold;">${rec.recommended_crop}</h3>
+                        <p style="margin: 0; opacity: 0.9; font-size: 12px;">RECOMMENDED CROP</p>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        <div style="background: #f5f7fa; padding: 12px; border-radius: 8px;">
+                            <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 5px; text-transform: uppercase;">Profitability</div>
+                            <div style="font-size: 20px; font-weight: bold; color: #1a5f7a;">${rec.profitability_score}</div>
+                            <div style="font-size: 10px; color: #95a5a6;">/100</div>
+                        </div>
+                        <div style="background: #f5f7fa; padding: 12px; border-radius: 8px;">
+                            <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 5px; text-transform: uppercase;">Price</div>
+                            <div style="font-size: 20px; font-weight: bold; color: #27ae60;">₹${rec.predicted_price.toFixed(2)}</div>
+                            <div style="font-size: 10px; color: #95a5a6;">/quintal</div>
+                        </div>
+                    </div>
+                    
+                    <button style="width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s;" onclick="loadFarmRecommendation('${farm}'); event.stopPropagation();">
+                        View Details →
+                    </button>
+                </div>
+            `;
+        }
+
+        html += `</div></div>`;
+        container.innerHTML = html;
+    }
+
+    function getGradientColor(crop) {
+        const gradients = {
+            'Wheat': '#1e8449, #27ae60',
+            'Corn': '#f39c12, #e67e22',
+            'Lettuce': '#16a085, #1abc9c',
+            'Tomato': '#c0392b, #e74c3c'
+        };
+        return gradients[crop] || '#667eea, #764ba2';
+    }
+
+    async function loadFarmRecommendation(farmName) {
+        const container = document.getElementById('recommendation-container');
+        container.innerHTML = '<div style="text-align: center; padding: 20px;"><p>Loading detailed recommendation...</p></div>';
+
+        try {
+            const response = await fetch(`/api/farm/${farmName}/crop-recommendation`);
+            if (!response.ok) throw new Error('Failed to fetch recommendation');
+            
+            const data = await response.json();
+            displayDetailedRecommendation(data);
+        } catch (error) {
+            console.error('Error loading farm recommendation:', error);
+            container.innerHTML = '<div style="color: #e74c3c; padding: 20px;"><p>⚠️ Error loading recommendation. Please try again.</p></div>';
+        }
+    }
+
+    function displayDetailedRecommendation(data) {
+        const container = document.getElementById('recommendation-container');
+        const cropEmojis = {
+            'Wheat': '🌾',
+            'Corn': '🌽',
+            'Lettuce': '🥬',
+            'Tomato': '🍅'
+        };
+        const emoji = cropEmojis[data.recommended_crop] || '🌱';
+        const cropLower = data.recommended_crop.toLowerCase();
+
+        const gradients = {
+            'wheat': '#1e8449, #27ae60',
+            'corn': '#f39c12, #e67e22',
+            'lettuce': '#16a085, #1abc9c',
+            'tomato': '#c0392b, #e74c3c'
+        };
+        const gradient = gradients[cropLower] || '#667eea, #764ba2';
+
+        let html = `
+            <div style="max-width: 1000px; margin: 0 auto;">
+                <button onclick="loadCropRecommendations()" style="padding: 10px 16px; background: #ecf0f1; color: #1a5f7a; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; margin-bottom: 20px;">← Back to All Farms</button>
+                
+                <div style="background: linear-gradient(135deg, ${gradient}); color: white; border-radius: 12px; padding: 40px; text-align: center; margin-bottom: 30px;">
+                    <div style="font-size: 60px; margin-bottom: 15px;">${emoji}</div>
+                    <h2 style="margin: 0 0 10px 0; font-size: 36px;">${data.recommended_crop}</h2>
+                    <p style="margin: 0; font-size: 16px; opacity: 0.9;">${data.farm} - Recommended Crop for Maximum Profit</p>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 30px;">
+                    <div style="background: white; padding: 20px; border-radius: 12px; border-left: 4px solid #667eea; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 8px; text-transform: uppercase;">Profitability Score</div>
+                        <div style="font-size: 28px; font-weight: bold; color: #667eea;">${data.recommendation_score}</div>
+                        <div style="font-size: 11px; color: #95a5a6; margin-top: 5px;">out of 100</div>
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-radius: 12px; border-left: 4px solid #27ae60; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 8px; text-transform: uppercase;">Predicted Price</div>
+                        <div style="font-size: 28px; font-weight: bold; color: #27ae60;">₹${data.predicted_price.toFixed(2)}</div>
+                        <div style="font-size: 11px; color: #95a5a6; margin-top: 5px;">per quintal</div>
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-radius: 12px; border-left: 4px solid #e67e22; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 8px; text-transform: uppercase;">Expected Yield</div>
+                        <div style="font-size: 28px; font-weight: bold; color: #e67e22;">${data.expected_yield_tonnes_per_ha.toFixed(1)}</div>
+                        <div style="font-size: 11px; color: #95a5a6; margin-top: 5px;">tonnes/hectare</div>
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-radius: 12px; border-left: 4px solid #1a5f7a; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <div style="font-size: 12px; color: #7f8c8d; margin-bottom: 8px; text-transform: uppercase;">Est. Profit/ha</div>
+                        <div style="font-size: 28px; font-weight: bold; color: #1a5f7a;">₹${data.estimated_profit_per_ha.toFixed(0)}</div>
+                        <div style="font-size: 11px; color: #95a5a6; margin-top: 5px;">${data.profit_confidence}</div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                    <div style="background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <h3 style="color: #1a5f7a; margin: 0 0 15px 0; font-size: 18px;">💡 Why This Crop?</h3>
+                        <ul style="margin: 0; padding-left: 20px; color: #2c3e50; font-size: 14px; line-height: 1.8;">
+                            ${data.reasoning.map(r => `<li style="margin-bottom: 10px;">${r}</li>`).join('')}
+                        </ul>
+                    </div>
+
+                    <div style="background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <h3 style="color: #1a5f7a; margin: 0 0 15px 0; font-size: 18px;">📊 Crop Comparison</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            ${Object.entries(data.crop_comparison.profitability_scores).map(([crop, score]) => {
+                                const icon = cropEmojis[crop.charAt(0).toUpperCase() + crop.slice(1)] || '🌱';
+                                const isBest = crop.toLowerCase() === cropLower;
+                                const bgColor = isBest ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f5f7fa';
+                                const textColor = isBest ? 'white' : '#1a5f7a';
+                                return `
+                                    <div style="background: ${bgColor}; padding: 12px; border-radius: 8px; text-align: center;">
+                                        <div style="font-size: 24px; margin-bottom: 5px;">${icon}</div>
+                                        <div style="font-size: 12px; color: ${isBest ? 'rgba(255,255,255,0.8)' : '#7f8c8d'}; margin-bottom: 5px;">${crop.toUpperCase()}</div>
+                                        <div style="font-size: 16px; font-weight: bold; color: ${textColor};">${score.toFixed(1)}</div>
+                                        ${isBest ? '<div style="font-size: 10px; color: #ffd700; margin-top: 5px;">✓ BEST</div>' : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 12px; margin-bottom: 30px;">
+                    <h3 style="margin: 0 0 15px 0; font-size: 18px;">🌍 Cross-Farm Market Strategy</h3>
+                    <p style="margin: 0 0 15px 0; font-size: 14px;">To prevent market saturation and maximize prices, farms are allocated different crops:</p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+                        ${Object.entries(data.other_farm_recommendations).map(([farm, crop]) => {
+                            const icon = cropEmojis[crop] || '🌱';
+                            return `<div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 24px; margin-bottom: 5px;">${icon}</div>
+                                <div style="font-size: 12px; opacity: 0.8; margin-bottom: 3px;">${farm}</div>
+                                <div style="font-size: 13px; font-weight: 600;">${crop}</div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <button onclick="loadCropRecommendations()" style="padding: 12px 24px; background: #1a5f7a; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; width: 100%; font-size: 16px;">Back to All Farms</button>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+    }
+
+</script>
 </body>
 </html>
